@@ -1,0 +1,486 @@
+METHOD if_ex_notif_event_post~check_data_at_post.
+  break cramakrishna.
+* This implementation send an alert
+* Preconditions:  1) notification TYPE is Y1,Y2,Y9 (Filter in Badi)
+  DATA: lv_nsttxt        TYPE bsvx-sttxt,
+        lr_send_request  TYPE REF TO cl_bcs,
+        lt_content       TYPE soli_tab,
+        lx_content       TYPE soli,
+        lt_lines         TYPE TABLE OF tline,
+        lv_date          TYPE char10,
+        lv_bname         TYPE sy-uname,
+        lv_text          TYPE char20,
+        lv_docid         TYPE sofolenti1-doc_id,
+        lv_docdata       TYPE sofolenti1,
+        lt_attcontent    TYPE TABLE OF solix,
+        lv_subject       TYPE so_obj_des,
+        lr_document      TYPE REF TO cl_document_bcs,
+        lr_sender        TYPE REF TO cl_sapuser_bcs,
+        lr_recipient     TYPE REF TO if_recipient_bcs,
+        lr_bcs_exception TYPE REF TO cx_bcs,
+        lv_mainthead_pos TYPE hrp1000-objid,
+        lv_sent_to_all   TYPE os_boolean,
+        lv_objectkey     TYPE swr_struct-object_key.
+  CONSTANTS: lc_th TYPE char50 VALUE '</th><th style="border: 1px solid #000000;">',
+             lc_td TYPE char50 VALUE '</td><td style="border: 1px solid #000000;">',
+             lc_rd TYPE char50 VALUE '<tr><td style="border: 1px solid #000000;">',
+             lc_rh TYPE char50 VALUE '<tr><th style="border: 1px solid #000000;">'.
+
+*Get previous active status
+  SELECT SINGLE stat FROM jest INTO @DATA(lv_stat)
+     WHERE objnr = @is_new_viqmel-objnr AND inact <> @abap_true.
+*Get changed status from buffer
+  CALL FUNCTION 'STATUS_TEXT_EDIT'
+    EXPORTING
+      objnr            = is_new_viqmel-objnr
+      spras            = sy-langu
+    IMPORTING
+      line             = lv_nsttxt
+    EXCEPTIONS
+      object_not_found = 1
+      OTHERS           = 2.
+  IF sy-subrc <> 0.
+*Do not proceed with notification
+  ELSE.
+
+*Check status "Put in process(NOPR)" or "Complete(NOCO)"
+    IF ( lv_nsttxt CS 'OSNO' AND ( flt_val = 'Y1' OR flt_val = 'Y2' ) )
+      OR ( lv_nsttxt CS 'NOPR' AND ( flt_val = 'Y1' OR flt_val = 'Y9' ) ) OR ( lv_nsttxt CS 'NOCO' AND flt_val = 'Y1' ).
+
+*Get mailid/pernr/name of reportedby and changedby user
+      SELECT  b~bname, b~persnumber, a~smtp_addr, c~name_text INTO TABLE @DATA(lt_name_smtpaddr) FROM adr6 AS a
+        INNER JOIN usr21 AS b ON a~persnumber = b~persnumber
+        INNER JOIN adrp  AS c ON c~persnumber = b~persnumber
+                AND a~addrnumber = b~addrnumber
+        WHERE b~bname = @is_new_viqmel-qmnam OR b~bname = @is_new_viqmel-aenam OR b~bname = @sy-uname.
+*Get mailid of person responsible
+      IF is_tq80-parvw_vera = 'VW'.
+        SELECT SINGLE usrid_long INTO @DATA(lv_personresp) FROM pa0105
+          WHERE pernr = @is_new_viqmel-notificationpersonresponsible
+            AND subty = '0010'
+            AND begda <= @sy-datum AND endda >= @sy-datum.
+        IF lv_nsttxt CS 'NOPR' AND flt_val = 'Y9'.
+          SELECT SINGLE nchmc, vnamc  FROM pa0002 INTO @DATA(lx_camowner)
+            WHERE pernr = @is_new_viqmel-notificationpersonresponsible
+              AND begda <= @sy-datum AND endda >= @sy-datum.
+        ENDIF.
+      ENDIF.
+
+***************build mail body in HTML******************
+      lx_content-line = '<html><body>Dear Concerned,<br><br>'.
+      APPEND lx_content TO lt_content.
+      CLEAR lx_content.
+
+*Changedby name and PERNR
+      IF lv_nsttxt CS 'OSNO' AND ( flt_val = 'Y1' OR flt_val = 'Y2' ).
+        lv_bname = sy-uname.
+        lv_text = 'Created By:'.
+      ELSEIF lv_nsttxt CS 'NOPR' AND flt_val = 'Y9'.
+        lx_content-line = 'Please find below camera observations punched:<br><br>'.
+        APPEND lx_content TO lt_content.
+        CLEAR lx_content.
+        CONDENSE lx_camowner-nchmc NO-GAPS.
+        lx_content-line = |Camera Owner: { lx_camowner-vnamc } { lx_camowner-nchmc }<br> |.
+        APPEND lx_content TO lt_content.
+        CLEAR lx_content.
+        lv_bname = is_new_viqmel-qmnam.
+        lv_text = 'Reported By: VE Team-'.
+      ELSEIF flt_val = 'Y1' AND ( lv_nsttxt CS 'NOPR' OR lv_nsttxt CS 'NOCO' ) .
+        lv_bname = is_new_viqmel-aenam.
+        lv_text = 'Changed By:'.
+      ENDIF.
+      READ TABLE lt_name_smtpaddr INTO DATA(lx_nsmtp) WITH KEY bname = lv_bname.
+      IF sy-subrc = 0.
+        lx_content-line = |{ lv_text } { lx_nsmtp-persnumber ALPHA = OUT }( { lx_nsmtp-name_text }.)<br>|.
+        APPEND lx_content TO lt_content.
+        CLEAR lx_content. FREE: lv_text, lv_bname.
+      ENDIF.
+
+      IF lv_stat IS INITIAL AND lv_nsttxt CS 'OSNO' AND ( flt_val = 'Y1' OR flt_val = 'Y2' ).
+
+        WRITE sy-datum DD/MM/YYYY TO lv_date.
+        REPLACE ALL OCCURRENCES OF '/' IN lv_date WITH '.'.
+        lx_content-line = |Outstanding notification created On: { lv_date }<br><br>|.
+        APPEND lx_content TO lt_content.
+        CLEAR lx_content.
+      ELSEIF lv_stat = 'I0068' AND lv_nsttxt CS 'NOPR' AND  flt_val = 'Y1' .
+        WRITE is_new_viqmel-aedat DD/MM/YYYY TO lv_date.
+        REPLACE ALL OCCURRENCES OF '/' IN lv_date WITH '.'.
+        lx_content-line = |Put in process On: { lv_date }<br><br>|.
+        APPEND lx_content TO lt_content.
+        CLEAR lx_content.
+      ELSEIF lv_stat = 'I0070' AND lv_nsttxt CS 'NOCO' AND flt_val = 'Y1'.
+        WRITE is_new_viqmel-qmdat DD/MM/YYYY TO lv_date.
+        REPLACE ALL OCCURRENCES OF '/' IN lv_date WITH '.'.
+        lx_content-line = |Completed On: { lv_date }<br><br>|.
+        APPEND lx_content TO lt_content.
+        CLEAR lx_content.
+      ENDIF.
+
+      IF flt_val = 'Y1' OR ( flt_val = 'Y2' AND lv_nsttxt CS 'OSNO' ).
+        lx_content-line = '<table style="border: 2px solid #000000;">'.
+        APPEND lx_content TO lt_content.
+        CLEAR lx_content.
+        lx_content-line = |{ lc_rh }Plant{ lc_th }Notif.No.{ lc_th }Notif Desc.{ lc_th }|.
+        APPEND lx_content TO lt_content.
+        CLEAR lx_content.
+        lx_content-line = |Equipment{ lc_th }Equip.Desc{ lc_th }Func.Loc.{ lc_th }|.
+        APPEND lx_content TO lt_content.
+        CLEAR lx_content.
+        lx_content-line = |Func.Loc.Desc{ lc_th }Maint.WorkCntr{ lc_th }|.
+        APPEND lx_content TO lt_content.
+        CLEAR lx_content.
+        lx_content-line = |Fugai Tag{ lc_th }Created On</th></tr>|.
+        APPEND lx_content TO lt_content.
+        CLEAR lx_content.
+
+        SELECT SINGLE eqktx FROM eqkt INTO @DATA(lv_eqtxt) WHERE equnr = @is_new_viqmel-equnr AND spras = @sy-langu.
+        SELECT SINGLE pltxt FROM iflotx INTO @DATA(lv_fltxt) WHERE tplnr = @is_new_viqmel-tplnr AND spras = @sy-langu.
+        SELECT SINGLE arbpl, hroid FROM crhd INTO @DATA(lx_arbpl_hroid) WHERE objty = @is_new_viqmel-crobjty
+        AND begda <= @sy-datum AND endda >= @sy-datum AND objid = @is_new_viqmel-arbpl AND werks = @is_new_viqmel-arbplwerk.
+
+
+*Get Maintenance Head for Y1 and Y2 notifications
+*****************************************************************************
+
+
+        SELECT SINGLE b~objid
+          INTO lv_mainthead_pos
+          FROM hrp1001 AS b
+          INNER JOIN hrp1000 AS a ON b~objid = a~objid AND a~short = 'MAINT Head'
+           WHERE b~otype = 'S'
+          AND b~plvar = '01' AND b~rsign = 'B' AND b~relat = '003' AND b~begda <= sy-datum
+          AND b~endda >= sy-datum AND b~sclas = 'A' AND b~sobid = lx_arbpl_hroid-hroid
+          AND a~plvar = '01' AND a~otype = 'S' AND a~istat = 1
+         AND a~begda <= sy-datum AND a~endda >= sy-datum.
+        IF sy-subrc = 0.
+          SELECT SINGLE objid FROM hrp1001 INTO @DATA(lv_mh_pernr) WHERE otype = 'P'
+            AND plvar = '01' AND begda <= @sy-datum
+            AND endda >= @sy-datum  AND sclas = 'S' AND sobid = @lv_mainthead_pos.
+          IF sy-subrc = 0.
+            SELECT SINGLE usrid_long INTO @DATA(lv_mainthead) FROM pa0105
+              WHERE pernr = @lv_mh_pernr
+               AND subty = '0010' AND begda <= @sy-datum AND endda >= @sy-datum.
+          ENDIF.
+        ENDIF.
+
+        IF lv_nsttxt CS 'OSNO' AND ( flt_val = 'Y1' OR flt_val = 'Y2' ) AND lv_mainthead IS NOT INITIAL.
+          DATA: lv_objkey           TYPE char200,
+                lr_event_parameters TYPE REF TO if_swf_ifs_parameter_container.
+
+          lv_objkey+0(12) = is_new_viqmel-qmnum.
+          lv_objkey+12(2) = flt_val.
+          lv_objkey+14(40) = is_new_viqmel-qmtxt.
+          lv_objkey+54(8) = is_new_viqmel-qmdat.
+          lv_objkey+62(6) = is_new_viqmel-mzeit.
+          lv_objkey+68(30) = 'Outstanding Notification'.
+          lv_objkey+98(100) = lv_mainthead.
+
+
+* Instantiate an empty event container
+
+          CALL METHOD cl_swf_evt_event=>get_event_container
+            EXPORTING
+              im_objcateg  = cl_swf_evt_event=>mc_objcateg_cl
+              im_objtype   = 'ZCL_IM_NOTIF_EVENT_POST'
+              im_event     = 'CREATED'
+            RECEIVING
+              re_reference = lr_event_parameters.
+          TRY.
+
+              CALL METHOD lr_event_parameters->set
+                EXPORTING
+                  name  = 'NOTIFICATIONNUMBER'
+                  value = is_new_viqmel-qmnum.
+
+              CALL METHOD lr_event_parameters->set
+                EXPORTING
+                  name  = 'NOTIFICATIONTYPE'
+                  value = flt_val.
+              CALL METHOD lr_event_parameters->set
+                EXPORTING
+                  name  = 'NOTIFDESC'
+                  value = is_new_viqmel-qmtxt.
+              CALL METHOD lr_event_parameters->set
+                EXPORTING
+                  name  = 'NOTIFDATE'
+                  value = is_new_viqmel-qmdat.
+              CALL METHOD lr_event_parameters->set
+                EXPORTING
+                  name  = 'NOTIFTIME'
+                  value = is_new_viqmel-mzeit.
+              CALL METHOD lr_event_parameters->set
+                EXPORTING
+                  name  = 'STATUS'
+                  value = 'Outstanding Notification'.
+              CALL METHOD lr_event_parameters->set
+                EXPORTING
+                  name  = 'MIANT_HEADMAILID'
+                  value = lv_mainthead.
+
+            CATCH cx_swf_cnt_cont_access_denied .
+
+            CATCH cx_swf_cnt_elem_access_denied .
+
+            CATCH cx_swf_cnt_elem_not_found .
+
+            CATCH cx_swf_cnt_elem_type_conflict .
+
+            CATCH cx_swf_cnt_unit_type_conflict .
+
+            CATCH cx_swf_cnt_elem_def_invalid .
+
+            CATCH cx_swf_cnt_container .
+
+          ENDTRY.
+*TRY.
+          CALL METHOD cl_swf_evt_event=>raise
+            EXPORTING
+              im_objcateg        = 'CL'
+              im_objtype         = 'ZCL_IM_NOTIF_EVENT_POST'
+              im_event           = 'CREATED'
+              im_objkey          = lv_objkey
+              im_event_container = lr_event_parameters.
+*  CATCH cx_swf_evt_invalid_objtype.
+*  CATCH cx_swf_evt_invalid_event.
+*ENDTRY.
+
+        ENDIF.
+
+        lx_content-line = |{ lc_rd }{ is_new_viqmel-iwerk }{ lc_td }{ is_new_viqmel-qmnum ALPHA = OUT }{ lc_td }|.
+        APPEND lx_content TO lt_content.
+        CLEAR lx_content.
+        lx_content-line = |{ is_new_viqmel-qmtxt }{ lc_td }{ is_new_viqmel-equnr ALPHA = OUT }{ lc_td }|.
+        APPEND lx_content TO lt_content.
+        CLEAR lx_content.
+        lx_content-line = |{ lv_eqtxt }{ lc_td }{ is_new_viqmel-tplnr }{ lc_td }|.
+        APPEND lx_content TO lt_content.
+        CLEAR lx_content.
+        lx_content-line = |{ lv_fltxt }{ lc_td }{ lx_arbpl_hroid-arbpl }{ lc_td }|.
+        APPEND lx_content TO lt_content.
+        CLEAR lx_content.
+        lx_content-line = |{ is_new_viqmel-zzfuguaitag }{ lc_td }|.
+        APPEND lx_content TO lt_content.
+        CLEAR lx_content.
+        CLEAR lv_Date.
+        WRITE is_new_viqmel-erdat TO lv_date DD/MM/YYYY.
+        REPLACE ALL OCCURRENCES OF '/' IN lv_date WITH '.'.
+        lx_content-line = |{ lv_date }</td></tr></table>|.
+        APPEND lx_content TO lt_content.
+        CLEAR lx_content.
+        lx_content-line = |<br>Best regards<br>Trident Limited</body></html>|.
+        APPEND lx_content TO lt_content.
+        CLEAR lx_content.
+      ELSEIF flt_val = 'Y9' AND lv_nsttxt = 'NOPR'.
+*    Mail body content
+******************************************
+        lx_content-line = '<br><table style="border: 2px solid #000000;">'.
+        APPEND lx_content TO lt_content.
+        CLEAR lx_content.
+        lx_content-line = |{ lc_rh }Plant{ lc_th }Notif.No.{ lc_th }Notif Desc.{ lc_th }|.
+        APPEND lx_content TO lt_content.
+        CLEAR lx_content.
+        lx_content-line = |Camera/Equipment{ lc_th }Camera IP/Desc{ lc_th }|.
+        APPEND lx_content TO lt_content.
+        CLEAR lx_content.
+        lx_content-line = |Observation Desc.{ lc_th }Created On</th></tr>|.
+        APPEND lx_content TO lt_content.
+        CLEAR lx_content.
+
+        SELECT SINGLE eqktx FROM eqkt INTO @lv_eqtxt WHERE equnr = @is_new_viqmel-equnr AND spras = @sy-langu.
+
+        lx_content-line = |{ lc_rd }{ is_new_viqmel-iwerk }{ lc_td }{ is_new_viqmel-qmnum ALPHA = OUT }{ lc_td }|.
+        APPEND lx_content TO lt_content.
+        CLEAR lx_content.
+        lx_content-line = |{ is_new_viqmel-qmtxt }{ lc_td }{ is_new_viqmel-equnr ALPHA = OUT }{ lc_td }|.
+        APPEND lx_content TO lt_content.
+        CLEAR lx_content.
+        lx_content-line = |{ lv_eqtxt }{ lc_td }{ is_new_viqmel-qmtxt }{ lc_td }|.
+        APPEND lx_content TO lt_content.
+        CLEAR lx_content.
+        CLEAR lv_Date.
+        WRITE is_new_viqmel-erdat TO lv_date DD/MM/YYYY.
+        REPLACE ALL OCCURRENCES OF '/' IN lv_date WITH '.'.
+        lx_content-line = |{ lv_date }</td></tr></table>|.
+        APPEND lx_content TO lt_content.
+        CLEAR lx_content.
+*        lx_content-line = |<br>All are requested to use SAP T-Code-IW22 to close the observations at both levels.|.
+*        APPEND lx_content TO lt_content.
+*        CLEAR lx_content.
+*        lx_content-line = | Use T-code- ZPMREPORTS to check Camera Observations.<br>|.
+*        APPEND lx_content TO lt_content.
+
+        CLEAR lx_content.
+        lx_content-line = |<br>Best regards<br>Trident Limited</body></html>|.
+        APPEND lx_content TO lt_content.
+        CLEAR lx_content.
+******************************************
+        SELECT SINGLE instid_b FROM srgbtbrel INTO lv_docid
+          WHERE reltype = 'ATTA' AND instid_a = is_new_viqmel-qmnum AND typeid_a = 'BUS2038'
+          AND catid_a = 'BO'.
+        IF sy-subrc = 0.
+          CALL FUNCTION 'SO_DOCUMENT_READ_API1'
+            EXPORTING
+              document_id                = lv_docid
+            IMPORTING
+              document_data              = lv_docdata
+            TABLES
+              contents_hex               = lt_attcontent
+            EXCEPTIONS
+              document_id_not_exist      = 1
+              operation_no_authorization = 2
+              x_error                    = 3
+              OTHERS                     = 4.
+
+          IF sy-subrc <> 0.
+* Implement suitable error handling here
+          ENDIF.
+
+        ENDIF.
+      ENDIF.
+      TRY.
+*     -------- create persistent send request ------------------------
+          lr_send_request = cl_bcs=>create_persistent( ).
+
+*     -------- create and set document -------------------------------
+*     create document from internal table with text
+* Subject
+          IF flt_val = 'Y9'.
+            lv_subject = |VE Observation- { is_new_viqmel-iwerk }-{ is_new_viqmel-qmnum }|.
+          ELSE.
+            lv_subject = is_new_viqmel-qmtxt.
+          ENDIF.
+
+          lr_document = cl_document_bcs=>create_document(
+                          i_type    = 'HTM'
+                          i_text    = lt_content[]
+                          i_subject = lv_subject ).
+
+          IF lt_attcontent IS NOT INITIAL AND flt_val = 'Y9'.
+*     add the image as attachment to document object
+            lr_document->add_attachment(
+              i_attachment_type    = 'JPG'                  "#EC NOTEXT
+              i_attachment_subject = lv_docdata-obj_descr   "#EC NOTEXT
+              i_attachment_size    = lv_docdata-doc_size
+              i_att_content_hex    = lt_attcontent ).
+          ENDIF.
+*     add document to send request
+          CALL METHOD lr_send_request->set_document( lr_document ).
+
+
+
+
+*--added by yshikar on 18/01/2023 : TSDK902996 PSM:PM:WB: recipient correction TVARVC logic
+
+          DATA: r_pernr TYPE RANGE OF p_pernr.
+
+*Check if plant is Budhni or Dhaula
+          IF zpmcl_utility_functions=>is_dhaula_plant( is_new_viqmel-iwerk ).
+            CALL METHOD zcacl_tvarvc_utility=>get_variant_range
+              EXPORTING
+                im_name  = 'PM_PERNR_DHAULA_RECIPIENT'
+              IMPORTING
+                ex_range = r_pernr.
+
+          ELSEIF zpmcl_utility_functions=>is_budhni_plant( is_new_viqmel-iwerk ).
+            CALL METHOD zcacl_tvarvc_utility=>get_variant_range
+              EXPORTING
+                im_name  = 'PM_PERNR_BUDHNI_RECIPIENT'
+              IMPORTING
+                ex_range = r_pernr.
+          ENDIF.
+
+
+          TYPES : BEGIN OF lty_email,
+                    email TYPE comm_id_long,
+                  END OF lty_email.
+
+          DATA : lt_recipient_email TYPE STANDARD TABLE OF lty_email.
+
+*    Get Email address of approver
+          SELECT usrid_long FROM pa0105
+          INTO TABLE @lt_recipient_email
+          WHERE pernr IN @r_pernr
+          AND endda >= @sy-datum
+          AND begda <= @sy-datum
+          AND pa0105~subty = '0010'.  "Get Email id
+          IF sy-subrc <> 0.
+*            CLEAR lv_agent1_email.
+          ENDIF.
+
+          LOOP AT lt_recipient_email ASSIGNING FIELD-SYMBOL(<lfs_email>) .
+*     create recipient - please replace e-mail address !!!
+            lr_recipient = cl_cam_address_bcs=>create_internet_address(
+                                              <lfs_email>-email ).
+
+*     add recipient with its respective attributes to send request
+            CALL METHOD lr_send_request->add_recipient
+              EXPORTING
+                i_recipient = lr_recipient
+                i_express   = 'X'.
+          ENDLOOP.
+
+*--------------------------------------------------------------------*
+
+
+*     --------- add recipient (e-mail address) -----------------------
+
+
+*     create recipient - please replace e-mail address !!!
+          READ TABLE lt_name_smtpaddr INTO lx_nsmtp WITH KEY bname = is_new_viqmel-qmnam.
+          IF sy-subrc = 0.
+            lr_recipient = cl_cam_address_bcs=>create_internet_address(
+                                              lx_nsmtp-smtp_addr ).
+
+*     add recipient with its respective attributes to send request
+            CALL METHOD lr_send_request->add_recipient
+              EXPORTING
+                i_recipient = lr_recipient
+                i_express   = 'X'.
+          ENDIF.
+
+*--Commented by YSHIKAR on 10.01.2023 : TSDK902996 PSM:PM:WB: recipient correction TVARVC logic
+*          lr_recipient = cl_cam_address_bcs=>create_internet_address(
+*                                      lv_personresp ).
+*
+**     add recipient with its respective attributes to send request
+*          CALL METHOD lr_send_request->add_recipient
+*            EXPORTING
+*              i_recipient = lr_recipient
+*              i_express   = 'X'.
+*
+*          IF lv_mainthead IS NOT INITIAL.
+*            lr_recipient = cl_cam_address_bcs=>create_internet_address(
+*                                      lv_mainthead ).
+*
+**     add recipient with its respective attributes to send request
+*            CALL METHOD lr_send_request->add_recipient
+*              EXPORTING
+*                i_recipient = lr_recipient
+*                i_express   = 'X'.
+*
+*          ENDIF.
+*--end commenting by YSHIKAR on 10.01.2023 : TSDK902996 PSM:PM:WB: recipient correction TVARVC logic
+
+*     ---------- send document ---------------------------------------
+          CALL METHOD lr_send_request->send(
+            EXPORTING
+              i_with_error_screen = 'X'
+            RECEIVING
+              result              = lv_sent_to_all ).
+
+*          COMMIT WORK.
+
+* -----------------------------------------------------------
+* *                     exception handling
+* -----------------------------------------------------------
+        CATCH cx_bcs INTO lr_bcs_exception.
+
+      ENDTRY.
+
+
+    ENDIF.
+  ENDIF.
+
+
+ENDMETHOD.
