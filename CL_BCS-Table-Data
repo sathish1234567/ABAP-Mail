@@ -1,0 +1,1181 @@
+  METHOD if_ex_me_purchdoc_posted~posted.
+
+
+********************************************************************************************
+*------------------------------------------------------------------------------------------*
+*------- Validation of system should trigger popup for sending 2 mails to vendors ---------*
+*------------------------------------------------------------------------------------------*
+********************************************************************************************
+
+*&---------------------------------------------------------------------*
+*& Developer Name/ID  : < Ganesh Pise & Laxmi Arsul / BCONE- C01018 & C01008>
+*& Functional Name    : <Shivananda Kotian>
+*& FS ID              : <MM108>
+*& Request No         : <TSDK901508>
+*& Solman No          : <SOLMAN NO + CD>
+*& Description        : Copy Prgm / <Changes in ME41 as per ZME41>
+*&                      <Changes - Issue & Resolution in WORDS>
+*& Creation Date      : <12.12.2022>
+*& Modify Id          : NA
+*&                      Start of changes <UnqID>/End of changes <UnqID>
+*&---------------------------------------------------------------------*
+
+    TYPES: BEGIN OF lty_eket,
+             ebeln TYPE ebeln,
+             ebelp TYPE ebelp,
+             banfn TYPE banfn,
+             bnfpo TYPE bnfpo,
+             anmng TYPE eban-menge,
+           END OF lty_eket,
+
+           BEGIN OF lty_rel,
+             ebeln TYPE ekko-ebeln,
+             frgke TYPE ekko-frgke,
+           END OF lty_rel,
+
+           BEGIN OF lty_mailid,
+             id TYPE ad_smtpadr,
+           END OF lty_mailid,
+
+           BEGIN OF lty_receivers,
+             receiver TYPE adr6-smtp_addr,
+           END OF lty_receivers,
+
+           BEGIN OF lty_docid,
+             instid_a TYPE srgbtbrel-instid_a,
+             docid    TYPE sofolenti1-doc_id,
+           END OF lty_docid,
+
+           BEGIN OF lty_po_excel1,
+             sno(25),
+             matnr(50),
+             rfq_qty(60),
+             req_date(25),
+             make(10),
+             del_date(30),
+             price(25),
+             disc(10),
+             vat(10),
+             excise(10),
+             freight(10),
+             tot_value(30),
+             heading(50),
+           END OF lty_po_excel1.
+
+
+    DATA: lt_receivers             TYPE TABLE OF somlreci1,
+          lt_message               TYPE TABLE OF solisti1,
+          lv_rec                   TYPE adr6-smtp_addr,
+          ls_message               TYPE solisti1,
+          lv_subject               TYPE so_obj_des,
+          lv_sno(5),
+          lv_msg(255),
+          lv_dats                  TYPE string,
+          lv_eindt                 TYPE eket-eindt,
+          lv_mfrpn                 TYPE mara-mfrpn,
+          lv_adrnr                 TYPE lfa1-adrnr,
+          lv_ektel                 TYPE t024-ektel,
+          lv_addr                  TYPE adr6-smtp_addr,
+          ls_receivers             TYPE somlreci1,
+          ls_eket                  TYPE eket,
+          ls_ekpo                  TYPE ekpo,
+          lt_lines                 TYPE TABLE OF tline,
+          ls_lines                 TYPE tline,
+          lv_text(100),
+          lv_matnr                 TYPE ekpo-matnr,
+          lt_mail                  TYPE TABLE OF but051,
+          ls_mail                  TYPE but051,
+          lv_str(50),  lv_ans,
+          lt_add                   TYPE adr6_tab,
+          lt_ab_add                TYPE adr6_tab,
+          lv_confirm,
+          lv_confirm2,
+          lt_eket                  TYPE TABLE OF lty_eket,
+          lv_ebeln                 TYPE ebeln,
+          lt_eket1                 TYPE mmpr_ueket,
+          lt_mailid                TYPE STANDARD TABLE OF lty_mailid,
+          ls_mailid                LIKE LINE OF lt_mailid,
+          lob_send                 TYPE REF TO cl_bcs,
+          lob_bcs_exception        TYPE REF TO cx_bcs,
+          lv_i                     TYPE i,
+          lv_c(2)                  TYPE c,
+          lob_sender               TYPE REF TO if_sender_bcs,
+          lt_ccreceivers           TYPE TABLE OF lty_receivers,
+          ls_ccreceivers           TYPE lty_receivers,
+          lob_recipient            TYPE REF TO if_recipient_bcs,
+          lt_mess_att              TYPE TABLE OF solisti1,
+          ls_mess_att              TYPE solisti1,
+          lt_dms_files             TYPE STANDARD TABLE OF dms_rec_file,
+          ls_dms_files             TYPE dms_rec_file,
+          lt_l_phios               TYPE STANDARD TABLE OF dms_rec_phio,
+          ls_tbl_phios             TYPE dms_rec_phio,
+          lv_name                  TYPE ekko-ernam,
+          lv_mxwrt                 TYPE  konp-mxwrt, lv_gkwrt   TYPE  konp-gkwrt, lv_gkwrtn  TYPE  konp-gkwrt,
+          lv_text2(100), lv_prno  TYPE stxl-tdname,
+          lt_mailtxt               TYPE TABLE OF solisti1,
+          lv_mailtxt_size          TYPE i,
+          lt_docid                 TYPE TABLE OF lty_docid,
+          ls_docid                 TYPE lty_docid,
+          lt_mailpack              TYPE TABLE OF sopcklsti1,
+          ls_mailpack              TYPE sopcklsti1,
+          lt_mailhead              TYPE TABLE OF solisti1,
+          ls_mailhead              TYPE solisti1,
+          lt_content_bin           TYPE solix_tab,
+          lt_mailjpg               TYPE solix_tab,
+          lt_len_jpg               TYPE so_obj_len,
+          lt_header                TYPE TABLE OF solisti1,
+          ls_header                TYPE solisti1,
+          lv_file                  TYPE string,
+          lv_ext(5),
+          lv_txt(100),
+          ls_doc_att               TYPE sodocchgi1,
+          lv_sent_all(1)           TYPE c,
+          lv_jpg                   TYPE i,
+          lv_content               TYPE i,
+          ls_extension             TYPE soodk-objtp VALUE 'RAW',
+          lv_pdf_size              TYPE so_obj_len,
+          lt_bcs_pdf               TYPE solix_tab,
+          ls_msg                   TYPE wzre_message,
+          lv_size                  TYPE i,
+          lob_mr_api               TYPE REF TO if_mr_api,
+          lv_folder                TYPE boole_d,
+          lv_current               TYPE xstring,
+          lv_b64data               TYPE string,
+          ls_loio                  TYPE skwf_io,
+          lv_length                TYPE i,
+          lv_len2                  TYPE i,
+          lt_body                  TYPE TABLE OF soli,
+          lv_body                  TYPE string,
+          ls_doc_data              TYPE sofolenti1,
+          lv_labst                 TYPE mard-labst,
+          lv_insme                 TYPE mard-insme,
+          lv_speme                 TYPE mard-speme,
+          lv_tot_stock             TYPE mard-labst,
+          ls_bin                   TYPE solisti1,
+          ls_content_bin           TYPE solix,
+          lv_con_tab               TYPE c VALUE cl_abap_char_utilities=>horizontal_tab,
+          lv_con_cret              TYPE c VALUE cl_abap_char_utilities=>cr_lf,
+          lv_pdf_lines             TYPE i,
+          lv_ln_po                 TYPE i,
+          lv_menge(17),
+          lv_chk_so(1),
+          lv_no_chk(1),
+          lt_po_excel1             TYPE STANDARD TABLE OF lty_po_excel1,
+          ls_po_excel1             TYPE lty_po_excel1,
+          lt_excel_bin             TYPE STANDARD TABLE OF solisti1,
+          lt_excel_raw             TYPE solix_tab,
+          lv_xstring               TYPE xstring,
+          lv_mat_sub               TYPE so_obj_des,
+          lt_content               TYPE solix_tab,
+          lv_sub                   TYPE so_obj_des,
+          lob_document             TYPE REF TO cl_document_bcs,
+          lt_dms_doc               TYPE STANDARD TABLE OF dms_doc_files,
+          ls_dms_doc               TYPE dms_doc_files,
+          lt_bin                   TYPE STANDARD TABLE OF sdokcntbin,
+          lt_info                  TYPE STANDARD TABLE OF scms_acinf,
+          ls_info                  TYPE scms_acinf,
+          lv_id                    TYPE sdok_phid,
+          lv_cat                   TYPE sdok_stcat,
+          lv_mat                   TYPE matnr,
+          lv_mat1                  TYPE matnr,
+          lt_drad                  TYPE STANDARD TABLE OF drad,
+          ls_drad                  TYPE drad,
+          lt_ekpo                  TYPE STANDARD TABLE OF ekpo,
+          lv_c_sender_address      TYPE  soextreci1-receiver,
+          lv_c_sender_address_type TYPE soextreci1-adr_typ VALUE 'SMTP'.
+
+    DATA: BEGIN OF ls_stxl_id,
+            ls_dobject TYPE stxl-tdobject,
+            ls_dname   TYPE stxl-tdname,
+            ls_did     TYPE stxl-tdid,
+            ls_dspras  TYPE stxl-tdspras,
+          END OF ls_stxl_id.
+
+    IF sy-tcode = 'ME41'.
+      IMPORT  lv_chk_so TO lv_no_chk FROM  MEMORY ID  'SHR'.
+      CHECK lv_no_chk = ' '.
+      CALL FUNCTION 'POPUP_TO_CONFIRM'
+        EXPORTING
+          titlebar       = 'Mail Sending!!!'
+          text_question  = 'Do you want to send the mail?'
+          text_button_1  = 'With Excel'
+          text_button_2  = 'Without Exel'
+          default_button = '1'
+        IMPORTING
+          answer         = lv_confirm.
+
+      IF lv_confirm = '1' OR lv_confirm = '2'.
+
+        CLEAR : lt_mail[].
+
+        IF sy-subrc <> 0.
+          MESSAGE e001(zmm) WITH 'Invalid Collective RFQ No.' .
+        ELSE.
+          CONCATENATE 'RFQ Details:-  ' im_ekko-ebeln INTO lv_subject SEPARATED BY space.
+
+          REFRESH: lt_receivers, lt_message.
+          CLEAR: ls_receivers, ls_message, ls_message.
+          CLEAR: lv_addr.
+
+          SELECT * APPENDING
+            TABLE lt_mail
+            FROM but051
+            WHERE partner1 = im_ekko-lifnr AND
+            pafkt = '0014'
+            AND smtp_address <> ''.
+
+          SORT lt_mail BY smtp_address.
+          DELETE ADJACENT DUPLICATES FROM lt_mail COMPARING smtp_address.
+
+          CLEAR : ls_mail.
+
+          LOOP AT lt_mail INTO ls_mail.
+            ls_receivers-receiver = ls_mail-smtp_address.
+            ls_receivers-rec_type = 'U'.
+            ls_receivers-com_type = 'INT'.
+            ls_receivers-copy     = ' '.
+            CONDENSE ls_receivers-receiver.
+            APPEND ls_receivers TO lt_receivers.
+            CLEAR : ls_receivers, ls_mail.
+          ENDLOOP.
+
+          CLEAR: lv_addr.
+          SELECT SINGLE smtp_addr ektel
+          INTO (lv_addr, lv_ektel) FROM t024
+          WHERE ekgrp = im_ekko-ekgrp.
+          IF sy-subrc = 0.
+            CLEAR: lt_mailid[],ls_mailid.
+            SPLIT lv_addr AT ',' INTO TABLE lt_mailid.
+            LOOP AT lt_mailid INTO ls_mailid.
+              ls_receivers-receiver = ls_mailid-id.
+              ls_receivers-rec_type = 'U'.
+              ls_receivers-com_type = 'INT'.
+              ls_receivers-copy     = 'X'.
+              CONDENSE ls_receivers-receiver.
+              APPEND ls_receivers TO lt_receivers.
+              CLEAR : ls_receivers.
+            ENDLOOP.
+          ENDIF.
+
+          SORT lt_receivers  BY receiver.
+          DELETE ADJACENT DUPLICATES FROM lt_receivers COMPARING receiver.
+
+          REFRESH : lt_message[].
+
+          CLEAR: lt_message[] , ls_message.
+
+          CONCATENATE '<p>' 'Dear Sir/Mam,' '</p>' INTO ls_message-line SEPARATED BY space  .
+
+          APPEND ls_message-line TO lt_message.  CLEAR ls_message.
+
+          ls_message-line = '<br>'.
+          APPEND ls_message-line TO lt_message. CLEAR ls_message.
+
+          CONCATENATE '<p>' 'Please send us your best offer for the items as mentioned in the RFQ attached below, with Terms & Conditions :' '</p>' INTO ls_message-line SEPARATED BY space  .
+          APPEND ls_message-line TO lt_message. CLEAR ls_message.
+
+          ls_message-line = '<TABLE  width= "100%" border="1">'.
+          APPEND ls_message-line TO lt_message. CLEAR ls_message.
+
+          CONCATENATE '<TR ><td align = "LEFT"  BGCOLOR = "#708090">' '<b> RFQ </b>'  '</td>'  INTO ls_message-line.
+          APPEND ls_message-line TO lt_message.  CLEAR ls_message.
+
+          CONCATENATE '<td align = "LEFT"  BGCOLOR = "#708090">'  '<b> Collective RFQ No. </b>'  '</td>'  INTO ls_message-line.
+          APPEND ls_message-line TO lt_message.  CLEAR ls_message.
+
+          CONCATENATE '<td align = "LEFT"  BGCOLOR = "#708090">'  '<b> RFQ Date </b>'  '</td>'  INTO ls_message-line.
+          APPEND ls_message-line TO lt_message.   CLEAR ls_message.
+
+          CONCATENATE '<td align = "LEFT"  BGCOLOR = "#708090">'  '<b> Due Date for Quotation </b>'  '</td>'  INTO ls_message-line.
+          APPEND ls_message-line TO lt_message.   CLEAR ls_message.
+
+
+          CONCATENATE '<TR ><td align = "LEFT" >'  '<FONT FACE=Arial SIZE=2 COLOR = "BLUE">' im_ekko-ebeln '</td>' INTO ls_message-line.
+          APPEND ls_message-line TO lt_message.  CLEAR ls_message.
+
+          CONCATENATE '<td align = "LEFT" >'  '<FONT FACE=Arial SIZE=2 COLOR = "BLUE">' im_ekko-submi  '</td>' INTO ls_message-line.
+          APPEND ls_message-line TO lt_message. CLEAR ls_message.
+
+          CONCATENATE sy-datum+6(2) '.' sy-datum+4(2) '.' sy-datum+0(4)
+          INTO lv_dats.
+
+          CONCATENATE '<td align = "LEFT" >'  '<FONT FACE=Arial SIZE=2 COLOR = "BLUE">' lv_dats '</td>' INTO ls_message-line.
+          APPEND ls_message-line TO lt_message.  CLEAR ls_message.
+
+          CLEAR lv_dats.
+          CONCATENATE im_ekko-angdt+6(2) '.' im_ekko-angdt+4(2) '.' im_ekko-angdt+0(4)
+          INTO lv_dats.
+
+          CONCATENATE '<td align = "LEFT" >'  '<FONT FACE=Arial SIZE=2 COLOR = "BLUE">' lv_dats  '</td>' INTO ls_message-line.
+          APPEND ls_message-line TO lt_message.  CLEAR ls_message.
+
+          ls_message-line = '</TABLE>'.
+          APPEND ls_message-line TO lt_message. CLEAR ls_message.
+
+          ls_message-line = '<br>'.
+          APPEND ls_message-line TO lt_message. CLEAR ls_message.
+
+          CONCATENATE '<p>' 'We have Requirement for the following :' '</p>' INTO ls_message-line SEPARATED BY space  .
+          APPEND ls_message-line TO lt_message. CLEAR ls_message.
+
+          ls_message-line = '<TABLE  width= "100%" border="1">'.
+          APPEND ls_message-line TO lt_message. CLEAR ls_message.
+
+          CONCATENATE '<TR ><td align = "LEFT"  BGCOLOR = "#708090">' '<b> SNo.  </b>'  '</td>'  INTO ls_message-line.
+          APPEND ls_message-line TO lt_message.  CLEAR ls_message.
+
+          CONCATENATE '<td align = "LEFT"  BGCOLOR = "#708090">'  '<b> Material Code  </b>'  '</td>'  INTO ls_message-line.
+          APPEND ls_message-line TO lt_message.  CLEAR ls_message.
+
+          CONCATENATE '<td align = "LEFT"  BGCOLOR = "#708090">'  '<b> Material Description </b>'  '</td>'  INTO ls_message-line.
+          APPEND ls_message-line TO lt_message.   CLEAR ls_message.
+
+          CONCATENATE '<td align = "LEFT"  BGCOLOR = "#708090">'  '<b> Qty Required </b>'  '</td>'  INTO ls_message-line.
+          APPEND ls_message-line TO lt_message.   CLEAR ls_message.
+
+          CONCATENATE '<td align = "LEFT"  BGCOLOR = "#708090">'  '<b> UOM   </b>'  '</td>'  INTO ls_message-line.
+          APPEND ls_message-line TO lt_message.  CLEAR ls_message.
+
+          CONCATENATE '<td align = "LEFT"  BGCOLOR = "#708090">'  '<b> Delivery Date </b>'  '</td>'  INTO ls_message-line.
+          APPEND ls_message-line TO lt_message.   CLEAR ls_message.
+
+          CONCATENATE '<td align = "LEFT"  BGCOLOR = "#708090">'  '<b> Addn Remarks </b>'  '</td>'  INTO ls_message-line.
+          APPEND ls_message-line TO lt_message.   CLEAR ls_message.
+
+
+          lv_sno = 1.
+
+          CLEAR: lv_mat1.
+          LOOP AT im_ekpo INTO ls_ekpo.
+
+            CLEAR: ls_message, lv_matnr.
+            CALL FUNCTION 'CONVERSION_EXIT_MATN1_INPUT'
+              EXPORTING
+                input        = ls_ekpo-ematn
+              IMPORTING
+                output       = lv_matnr
+              EXCEPTIONS
+                length_error = 1
+                OTHERS       = 2.
+            IF sy-subrc <> 0.
+            ENDIF.
+            ls_stxl_id-ls_dobject = 'MATERIAL' .
+            ls_stxl_id-ls_dname   = lv_matnr .
+            ls_stxl_id-ls_did     = 'GRUN'.
+            ls_stxl_id-ls_dspras  = 'E'.
+            CLEAR: lt_lines, lv_text, ls_lines.
+
+            IMPORT tline TO lt_lines
+                  FROM DATABASE stxl(tx)
+                       CLIENT   sy-mandt
+                       ID       ls_stxl_id
+                       IGNORING CONVERSION ERRORS.
+
+            LOOP AT lt_lines INTO ls_lines.
+              CONCATENATE lv_text ls_lines-tdline INTO lv_text.
+            ENDLOOP.
+
+            CLEAR : ls_stxl_id, lt_lines, lt_lines[], lv_text2, lv_prno.
+
+            CONCATENATE ls_ekpo-ebeln ls_ekpo-ebelp INTO lv_prno.
+
+            ls_stxl_id-ls_dobject = 'EKPO' .
+            ls_stxl_id-ls_dname   = lv_prno .
+            ls_stxl_id-ls_did     = 'A01'.
+            ls_stxl_id-ls_dspras  = 'E'.
+
+            CLEAR: lt_lines, lv_text2, ls_lines.
+
+            IMPORT tline TO lt_lines
+                  FROM DATABASE stxl(tx)
+                       CLIENT   sy-mandt
+                       ID       ls_stxl_id
+                       IGNORING CONVERSION ERRORS.
+
+            LOOP AT lt_lines INTO ls_lines.
+              CONCATENATE lv_text2 ls_lines-tdline INTO lv_text2.
+            ENDLOOP.
+
+            CALL FUNCTION 'CONVERSION_EXIT_ALPHA_OUTPUT'
+              EXPORTING
+                input  = ls_ekpo-ematn
+              IMPORTING
+                output = lv_mat1.
+
+            CONCATENATE '<TR ><td align = "LEFT" >'  '<FONT FACE=Arial SIZE=2 COLOR = "BLUE">' lv_sno '</td>' INTO ls_message-line.
+            APPEND ls_message-line TO lt_message.  CLEAR ls_message.
+
+            CONCATENATE '<td align = "LEFT" >'  '<FONT FACE=Arial SIZE=2 COLOR = "BLUE">' lv_mat1 '</td>' INTO ls_message-line.
+            APPEND ls_message-line TO lt_message. CLEAR ls_message.
+
+            CONCATENATE '<td align = "LEFT" >'  '<FONT FACE=Arial SIZE=2 COLOR = "BLUE">' ls_ekpo-txz01  '</td>' INTO ls_message-line.
+            APPEND ls_message-line TO lt_message. CLEAR ls_message.
+
+            lv_mfrpn = ls_ekpo-ktmng.
+            SHIFT lv_mfrpn LEFT DELETING LEADING space.
+
+            CONCATENATE '<td align = "LEFT" >'  '<FONT FACE=Arial SIZE=2 COLOR = "BLUE">' lv_mfrpn '</td>' INTO ls_message-line.
+            APPEND ls_message-line TO lt_message.  CLEAR ls_message.
+
+            CONCATENATE '<td align = "LEFT" >'  '<FONT FACE=Arial SIZE=2 COLOR = "BLUE">' ls_ekpo-meins  '</td>' INTO ls_message-line.
+            APPEND ls_message-line TO lt_message. CLEAR ls_message.
+
+            IF sy-tcode = 'ME41'.
+              LOOP AT im_eket INTO ls_eket WHERE ebelp = ls_ekpo-ebelp.
+                CLEAR lv_dats.
+                CONCATENATE ls_eket-eindt+6(2) '.' ls_eket-eindt+4(2) '.' ls_eket-eindt+0(4)
+                INTO lv_dats.
+                CONCATENATE '<td align = "LEFT" >'  '<FONT FACE=Arial SIZE=2 COLOR = "BLUE">' lv_dats '</td>' INTO ls_message-line.
+                APPEND ls_message-line TO lt_message. CLEAR ls_message.
+              ENDLOOP.
+            ELSE.
+
+              IF im_eket[] IS NOT INITIAL.
+                LOOP AT im_eket INTO ls_eket WHERE ebelp = ls_ekpo-ebelp.
+                  CLEAR lv_dats.
+                  CONCATENATE ls_eket-eindt+6(2) '.' ls_eket-eindt+4(2) '.' ls_eket-eindt+0(4)
+                  INTO lv_dats.
+                  CONCATENATE '<td align = "LEFT" >'  '<FONT FACE=Arial SIZE=2 COLOR = "BLUE">' lv_dats '</td>' INTO ls_message-line.
+                  APPEND ls_message-line TO lt_message. CLEAR ls_message.
+                ENDLOOP.
+              ELSE.
+                CLEAR : lv_eindt, lv_dats.
+                SELECT SINGLE eindt INTO lv_eindt FROM eket
+                  WHERE ebeln = ls_ekpo-ebeln AND
+                        ebelp = ls_ekpo-ebelp.
+
+                CONCATENATE lv_eindt+6(2) '.' lv_eindt+4(2) '.' lv_eindt+0(4)
+                INTO lv_dats.
+                CONCATENATE '<td align = "LEFT" >'  '<FONT FACE=Arial SIZE=2 COLOR = "BLUE">' lv_dats '</td>' INTO ls_message-line.
+                APPEND ls_message-line TO lt_message. CLEAR ls_message.
+              ENDIF.
+            ENDIF.
+
+            ls_po_excel1-sno      = lv_sno.
+            ls_po_excel1-matnr    = ls_ekpo-txz01.
+            ls_po_excel1-rfq_qty  = ls_ekpo-ktmng.
+            ls_po_excel1-req_date = lv_dats.
+
+            APPEND ls_po_excel1 TO lt_po_excel1.
+            CLEAR: ls_po_excel1.
+
+            CONCATENATE '<td align = "LEFT" >'  '<FONT FACE=Arial SIZE=2 COLOR = "BLUE">' lv_text '</td>' INTO ls_message-line.
+            APPEND ls_message-line TO lt_message. CLEAR ls_message.
+
+            CONCATENATE '<td align = "LEFT" >'  '<FONT FACE=Arial SIZE=2 COLOR = "BLUE">' lv_text2 '</td>' INTO ls_message-line.
+            APPEND ls_message-line TO lt_message. CLEAR ls_message.
+
+            lv_sno = lv_sno + 1.
+            CLEAR: ls_ekpo, lv_mat1.
+          ENDLOOP.
+
+          ls_message-line = '</TABLE>'.
+          APPEND ls_message-line TO lt_message. CLEAR ls_message.
+
+
+          IF im_ekko-bukrs = 'LP10' OR im_ekko-bukrs = 'LP40'.
+
+            APPEND '<br> <br> Thanks & Regards<br>' TO lt_message.
+            APPEND 'Lotus Hometextiles Ltd.' TO lt_message.
+
+            lob_mr_api = cl_mime_repository_api=>if_mr_api~get_api( ).
+
+            CALL METHOD lob_mr_api->get
+              EXPORTING
+                i_url              = '/SAP/PUBLIC/MM/Lotus.jpg'
+              IMPORTING
+                e_is_folder        = lv_folder
+                e_content          = lv_current
+                e_loio             = ls_loio
+              EXCEPTIONS
+                parameter_missing  = 1
+                error_occured      = 2
+                not_found          = 3
+                permission_failure = 4
+                OTHERS             = 5.
+
+            CALL FUNCTION 'SSFC_BASE64_ENCODE'
+              EXPORTING
+                bindata = lv_current
+              IMPORTING
+                b64data = lv_b64data.
+
+            ls_message = '<br><br><img src="data:image/gif;base64,'.
+
+            APPEND ls_message TO lt_message.
+
+            CLEAR ls_message.
+
+            lv_length = strlen( lv_b64data ).
+            lv_len2 = lv_length / 255.
+
+            ls_message = lv_b64data.
+
+            APPEND ls_message TO lt_message.
+
+            CLEAR ls_message.
+            DATA lv_len3 TYPE i.
+            DATA:lv_temp1 TYPE i,
+                 lv_temp2 TYPE i.
+            DO lv_len2 TIMES.
+              lv_len3 = 255 * sy-index.
+
+              IF lv_len3 <= lv_length.
+                ls_message = lv_b64data+lv_len3.
+                IF ls_message IS NOT INITIAL.
+                  APPEND ls_message TO lt_message.
+                  CLEAR ls_message.
+                ELSE.
+                  EXIT.
+                ENDIF.
+              ELSEIF lv_len3 > lv_length.
+                EXIT.
+              ENDIF.
+            ENDDO.
+
+            ls_message = '"alt=" "/>'.
+            APPEND ls_message TO lt_message.
+
+            CONCATENATE '<br><br>' 'Mansa Road, Dhaula, Barnala, Punjab - 148107 <br>' INTO ls_message-line.
+            APPEND ls_message TO lt_message. CLEAR ls_message.
+
+            CONCATENATE '| Phone No : 01679 - 285265 |' '<br>' INTO lv_str.
+
+            CONCATENATE 'Mob.' lv_ektel INTO lv_str.
+
+            CONCATENATE '<br>' lv_str INTO ls_message-line.
+            APPEND ls_message TO lt_message. CLEAR ls_message.
+
+            CONCATENATE '<br>'  lv_addr INTO ls_message-line.
+            APPEND ls_message TO lt_message. CLEAR ls_message.
+
+          ELSEIF  im_ekko-bukrs = 'GC80'.
+            APPEND '<br> <br> Thanks & Regards<br>' TO lt_message.
+            APPEND 'Citrus Global Enterprises Ltd.' TO lt_message.
+
+            CONCATENATE '<br><br>' 'BO14A-3742, UNDER FLYOVER, Raikot Road, Barnala,Punjab - 148101 <br>' INTO ls_message-line.
+            APPEND ls_message TO lt_message. CLEAR ls_message.
+
+            CONCATENATE '| Phone No : xxxxxxx |' '<br>' INTO lv_str.
+
+            CONCATENATE 'Mob.' lv_ektel INTO lv_str.
+
+            CONCATENATE '<br>' lv_str INTO ls_message-line.
+            APPEND ls_message TO lt_message. CLEAR ls_message.
+
+            CONCATENATE '<br>'  lv_addr INTO ls_message-line.
+            APPEND ls_message TO lt_message. CLEAR ls_message.
+
+          ELSE.
+
+            CONCATENATE 'Mob.' lv_ektel '|Toll Free No. 1800-180-2999  |' INTO lv_str.
+
+            CONCATENATE '<table border="0" cellpadding="0" cellspacing="0">' '' INTO ls_message-line.
+            APPEND ls_message TO lt_message.              CLEAR ls_message.
+
+            ls_message-line = '<br>'.
+            APPEND ls_message-line TO lt_message. CLEAR ls_message.
+
+            ls_message-line = '<br>'.
+            APPEND ls_message-line TO lt_message. CLEAR ls_message.
+
+            ls_message-line = '<br>'.
+            APPEND ls_message-line TO lt_message. CLEAR ls_message.
+
+            CONCATENATE '<tr><td><font><font size=2.5>Thanks & Regards</font><td></tr><tr><td>&nbsp;<td></tr><tr><td><td></tr>' ''  INTO ls_message-line.
+            APPEND ls_message TO lt_message.              CLEAR ls_message.
+
+            CONCATENATE '<tr><td><font><font size=2.5>Trident Ltd</font><td></tr><tr><td>&nbsp;<td></tr><tr><td><td></tr>' ''  INTO ls_message-line.
+            APPEND ls_message TO lt_message.              CLEAR ls_message.
+
+            CONCATENATE '<tr><td><img src="http://172.16.129.195/logo/logo.bmp" alt="Trident logo"></font><td></tr>' '' INTO ls_message-line.
+            APPEND ls_message TO lt_message.           CLEAR ls_message.
+
+            CONCATENATE '<tr><td><font><font size=2.5>E-212 Kitchlu Nagar, Ludhiana - 141001</font><td></tr>' '' INTO ls_message-line.
+            APPEND ls_message TO lt_message.              CLEAR ls_message.
+
+            CONCATENATE '<tr><td><font><font size=2.5>' lv_str '</font><td></tr>'  '' INTO ls_message-line.
+
+            APPEND ls_message TO lt_message.            CLEAR ls_message.
+
+            CONCATENATE '<tr><td><font><font size=2.5>'  lv_addr  '</font><td></tr><tr>' ''  INTO ls_message-line.
+            APPEND ls_message TO lt_message.           CLEAR ls_message.
+
+            CONCATENATE '</tr><tr><td>&nbsp;<td></tr><tr>' '' INTO ls_message-line.
+            APPEND ls_message TO lt_message.             CLEAR ls_message.
+
+            CONCATENATE '<td><font><font size=2.5>Visit us at <a href="http://www.tridentindia.com" target="_blank" title="tridentindia.com">http://www.tridentindia.com</font></a>' '' INTO ls_message-line.
+            APPEND ls_message TO lt_message.             CLEAR ls_message.
+
+            CONCATENATE '&nbsp;&nbsp;&nbsp;&nbsp;' '' INTO ls_message-line.
+            APPEND ls_message TO lt_message.             CLEAR ls_message.
+
+            CONCATENATE '<a href="https://www.facebook.com/tridentgroupindia" target="_blank" title="facebook"><img src="http://172.16.129.195/logo/facebook.jpg" alt="Trident logo"></a>&nbsp;' '' INTO ls_message-line.
+            APPEND ls_message TO lt_message.            CLEAR ls_message.
+
+            CONCATENATE '<a href="https://twitter.com/TridentLimited" target="_blank" title="twitter"><img src="http://172.16.129.195/logo/twitter.jpg" alt="Trident logo"></a>&nbsp;' '' INTO ls_message-line.
+            APPEND ls_message TO lt_message.             CLEAR ls_message.
+
+            CONCATENATE '<a href="http://www.linkedin.com/pub/trident-ltd/22/133/747" target="_blank" title="linked IN"><img src="http://172.16.129.195/logo/linkdin.jpg" alt="linkedin"></a><td> ' '' INTO ls_message-line.
+            APPEND ls_message TO lt_message.            CLEAR ls_message.
+
+            CONCATENATE '</tr><tr><td>&nbsp;<td></tr><tr><td>&nbsp;<td></tr><tr><td><font><font size=2.5>Championing Purpose & Values|Challenging Assumptions|Inspiring Confidence & Commitment</font><td>'  '' INTO ls_message-line.
+            APPEND ls_message TO lt_message.              CLEAR ls_message.
+
+            CONCATENATE '</tr></table>' '' INTO ls_message-line.
+            APPEND ls_message TO lt_message.             CLEAR ls_message.
+
+          ENDIF.
+
+          CLEAR lv_confirm.
+
+          CALL FUNCTION 'POPUP_TO_CONFIRM'
+            EXPORTING
+              titlebar       = 'Image Sending!!!'
+              text_question  = 'Do you want to send Material Image?'
+              text_button_1  = 'Yes'
+              text_button_2  = 'No'
+              default_button = '1'
+            IMPORTING
+              answer         = lv_confirm.
+
+
+          lt_mailtxt[] = lt_message[].
+          DESCRIBE TABLE lt_mailtxt LINES lv_mailtxt_size.
+          CONCATENATE 'RFQ Details:- '  im_ekko-ebeln INTO ls_doc_att-obj_descr SEPARATED BY space .
+
+          ls_doc_att-sensitivty = 'F'.
+          ls_doc_att-doc_size   = lv_mailtxt_size * 255.
+
+          CLEAR : ls_mailpack-transf_bin.
+          ls_mailpack-head_start   = 1.
+          ls_mailpack-head_num     = 0.
+          ls_mailpack-body_start   = 1.
+          ls_mailpack-body_num     = lv_mailtxt_size.
+          ls_mailpack-doc_type     = 'HTM'.
+          APPEND ls_mailpack TO lt_mailpack.
+
+        ENDIF.
+        IF lv_confirm = '1'.
+
+          DATA : lv_term      TYPE lfm1-zterm,   lv_inco1 TYPE lfm1-inco1,     lv_inco2 TYPE lfm1-inco2,
+                 lv_text1     TYPE t052u-text1,
+                 lv_name1     TYPE lfa1-name1,   lv_addr1 TYPE lfa1-adrnr,     lv_street TYPE adrc-street,
+                 lv_city1     TYPE adrc-city1,   lv_post  TYPE adrc-post_code1,lv_text3(70), lv_waers TYPE lfm1-waers,
+                 lv_bezei     TYPE tinct-bezei,    lv_name2 TYPE t001w-name2,lv_addr2 TYPE t001w-adrnr,
+                 lv_werks     TYPE t001w-werks,   lv_lin   TYPE i.
+
+          SELECT SINGLE zterm inco1 inco2 waers INTO (lv_term , lv_inco1 , lv_inco2, lv_waers) FROM lfm1
+          WHERE lifnr = im_ekko-lifnr.
+
+          READ TABLE im_ekpo INTO ls_ekpo INDEX 1.
+          lv_werks =  ls_ekpo-werks.
+
+          SELECT SINGLE name2 adrnr INTO (lv_name2 , lv_addr2) FROM t001w
+          WHERE werks = lv_werks.
+
+          SELECT SINGLE bezei  INTO lv_bezei FROM tinct
+          WHERE inco1 = lv_inco1.
+
+          SELECT SINGLE text1  INTO lv_text1 FROM t052u
+          WHERE zterm = lv_term AND
+                spras = sy-langu.
+
+          SELECT SINGLE smtp_addr ektel
+             INTO (lv_addr, lv_ektel) FROM t024
+          WHERE ekgrp = im_ekko-ekgrp.
+
+          SELECT SINGLE name1 adrnr INTO (lv_name1,lv_addr1) FROM lfa1
+          WHERE lifnr = im_ekko-lifnr.
+
+          SELECT SINGLE street  city1 post_code1
+             INTO (lv_street, lv_city1,lv_post) FROM adrc
+          WHERE addrnumber = lv_addr2.
+
+          CONCATENATE lv_street lv_city1 lv_post INTO lv_text  SEPARATED BY space.
+          CONCATENATE lv_bezei  lv_inco2         INTO lv_text3 SEPARATED BY space.
+
+          ls_po_excel1-req_date = 'Request for Quotation'.
+          INSERT ls_po_excel1 INTO lt_po_excel1 INDEX 1.
+
+          CLEAR : ls_po_excel1.
+          ls_po_excel1-sno       = 'Vendor'.
+          ls_po_excel1-matnr     = im_ekko-lifnr.
+          ls_po_excel1-del_date = 'Collective Number'.
+          ls_po_excel1-price    = im_ekko-submi.
+
+          INSERT ls_po_excel1 INTO lt_po_excel1 INDEX 2.
+
+          CLEAR : ls_po_excel1.
+          ls_po_excel1-matnr     = lv_name1.
+          ls_po_excel1-del_date  = 'Quotation No'.
+          ls_po_excel1-price     = im_ekko-ebeln.
+          INSERT ls_po_excel1 INTO lt_po_excel1 INDEX 3.
+
+          CLEAR : ls_po_excel1, lv_dats.
+          CONCATENATE im_ekko-aedat+6(2) '.' im_ekko-aedat+4(2) '.' im_ekko-aedat+0(4)
+          INTO lv_dats.
+
+          ls_po_excel1-matnr     = lv_text.
+          ls_po_excel1-del_date = 'Date of Enquiry'.
+          ls_po_excel1-price    = lv_dats.
+          INSERT ls_po_excel1 INTO lt_po_excel1 INDEX 4.
+
+          CLEAR : ls_po_excel1, lv_dats.
+          CONCATENATE im_ekko-angdt+6(2) '.' im_ekko-angdt+4(2) '.' im_ekko-angdt+0(4)
+          INTO lv_dats.
+
+          ls_po_excel1-del_date  = 'Quotation Validity'.
+          ls_po_excel1-price     = lv_dats.
+          INSERT ls_po_excel1 INTO lt_po_excel1 INDEX 5.
+
+          CLEAR : ls_po_excel1.
+          ls_po_excel1-del_date  = 'Payment Terms'.
+          ls_po_excel1-price     = lv_text1.
+          INSERT ls_po_excel1 INTO lt_po_excel1 INDEX 6.
+
+          CLEAR : ls_po_excel1.
+          ls_po_excel1-sno       = 'Purchaser Email ID'.
+          ls_po_excel1-matnr     = lv_addr.
+          ls_po_excel1-del_date  = 'Currency'.
+          ls_po_excel1-price     = lv_waers.
+          INSERT ls_po_excel1 INTO lt_po_excel1 INDEX 7.
+
+          CLEAR : ls_po_excel1.
+          ls_po_excel1-sno       = 'Purchaser Phone Number'.
+          ls_po_excel1-matnr     = lv_ektel.
+          ls_po_excel1-del_date  = 'Inco Terms'.
+          ls_po_excel1-price     = lv_text3          .
+          INSERT ls_po_excel1 INTO lt_po_excel1 INDEX 8.
+
+          ls_po_excel1-sno       = 'SNo.'.
+          ls_po_excel1-matnr     = 'Material Code'.
+          ls_po_excel1-rfq_qty   = 'RFQ QTY'.
+          ls_po_excel1-req_date  = 'Required Date'.
+          ls_po_excel1-make      = 'MAKE'.
+          ls_po_excel1-del_date  = 'DELIVERY DATE'.
+          ls_po_excel1-price     = 'BASIC PRICE'.
+          ls_po_excel1-disc      = 'DISC'.
+          ls_po_excel1-vat       = 'VAT /CST'.
+          ls_po_excel1-excise    = 'EXCISE'.
+          ls_po_excel1-freight   = 'FREIGHT'.
+          ls_po_excel1-tot_value = 'TOTAL VALUE'.
+          ls_po_excel1-heading   = 'EXCISE TARIFF HEADING'.
+          INSERT ls_po_excel1 INTO lt_po_excel1 INDEX 9.
+
+
+          DESCRIBE TABLE lt_po_excel1 LINES lv_lin.
+          lv_lin = lv_lin + 1.
+
+          CLEAR : ls_po_excel1.
+          ls_po_excel1-sno       = 'From'.
+          INSERT ls_po_excel1 INTO lt_po_excel1 INDEX lv_lin.
+
+          CLEAR : ls_po_excel1.
+          lv_lin = lv_lin + 1.
+          ls_po_excel1-matnr     = 'Plant Name'.
+          ls_po_excel1-rfq_qty   =  lv_name2.
+          INSERT ls_po_excel1 INTO lt_po_excel1 INDEX lv_lin.
+
+          CLEAR : ls_po_excel1.
+          lv_lin = lv_lin + 1.
+          ls_po_excel1-matnr     = 'Plant Address'.
+          ls_po_excel1-rfq_qty   = lv_text.
+          INSERT ls_po_excel1 INTO lt_po_excel1 INDEX lv_lin.
+
+
+          LOOP AT lt_po_excel1 INTO ls_po_excel1.
+            CONCATENATE ls_po_excel1-sno ls_po_excel1-matnr ls_po_excel1-rfq_qty ls_po_excel1-req_date ls_po_excel1-make ls_po_excel1-del_date
+                        ls_po_excel1-price ls_po_excel1-disc ls_po_excel1-vat ls_po_excel1-excise ls_po_excel1-freight ls_po_excel1-tot_value
+                        ls_po_excel1-heading
+                        INTO ls_bin-line SEPARATED BY lv_con_tab.
+            CONCATENATE lv_con_cret ls_bin-line INTO ls_bin-line.
+            APPEND ls_bin TO lt_excel_bin.
+            CLEAR : ls_bin.
+          ENDLOOP.
+
+          CALL FUNCTION 'SCMS_TEXT_TO_BINARY'
+            TABLES
+              text_tab   = lt_excel_bin
+              binary_tab = lt_excel_raw.
+          IF sy-subrc <> 0.
+          ENDIF.
+
+          APPEND LINES OF lt_excel_raw TO lt_content_bin.
+
+          DESCRIBE TABLE lt_excel_raw LINES lv_ln_po.
+          lv_length = lv_ln_po * 255.
+
+          ls_mailpack-transf_bin   = 'X'.
+          ls_mailpack-head_start   = 1.
+          ls_mailpack-head_num     = 1.
+          ls_mailpack-body_start   = lv_pdf_lines + 1.
+          ls_mailpack-body_num     = lv_ln_po.
+          ls_mailpack-doc_type     = 'XLS'.
+          CONCATENATE 'RFQ Details' '.xls' INTO lv_txt.
+          ls_mailpack-obj_name     = lv_txt.
+          ls_mailpack-obj_descr    = lv_txt.
+          ls_mailpack-doc_size     = lv_length.
+          APPEND ls_mailpack TO lt_mailpack.
+        ENDIF.
+
+      ENDIF.
+
+    ENDIF.
+
+    lv_c_sender_address ='customercare@tridentindia.com'.
+    ls_receivers-receiver = 'EXT_MAIL_CC'.
+    ls_receivers-rec_type = 'C'.
+    ls_receivers-copy = 'X'.
+
+    APPEND ls_receivers TO lt_receivers.
+    CLEAR  ls_receivers.
+
+    CALL FUNCTION 'SO_DOCUMENT_SEND_API1'
+      EXPORTING
+        document_data              = ls_doc_att
+        put_in_outbox              = 'X'
+        sender_address             = lv_c_sender_address
+        sender_address_type        = lv_c_sender_address_type
+      TABLES
+        packing_list               = lt_mailpack
+        object_header              = lt_mailhead
+        contents_txt               = lt_mailtxt
+        contents_hex               = lt_content_bin
+        receivers                  = lt_receivers
+      EXCEPTIONS
+        too_many_receivers         = 1
+        document_not_sent          = 2
+        document_type_not_exist    = 3
+        operation_no_authorization = 4
+        parameter_error            = 5
+        x_error                    = 6
+        enqueue_error              = 7
+        OTHERS                     = 8.
+
+    IF lv_confirm = '1'.
+      lt_ekpo[] = im_ekpo[].
+      SORT lt_ekpo BY matnr.
+      DELETE ADJACENT DUPLICATES FROM lt_ekpo COMPARING matnr.
+
+      CLEAR : lt_drad[], ls_drad.
+
+      LOOP AT lt_ekpo INTO ls_ekpo WHERE mtart = 'YERS' OR
+                                         mtart = 'YSER' OR
+                                         mtart = 'YYRN' OR
+                                         mtart = 'YDYC' OR
+                                         mtart = 'YVEP'.
+
+        CALL FUNCTION 'CONVERSION_EXIT_MATN1_INPUT'
+          EXPORTING
+            input        = ls_ekpo-matnr
+          IMPORTING
+            output       = ls_ekpo-matnr
+          EXCEPTIONS
+            length_error = 1
+            OTHERS       = 2.
+        IF sy-subrc <> 0.
+        ENDIF.
+        SELECT * APPENDING TABLE lt_drad FROM drad WHERE dokob = 'MARA' AND
+                                                    objky = ls_ekpo-matnr.
+      ENDLOOP.
+
+      SORT lt_drad  .
+      DELETE ADJACENT DUPLICATES FROM lt_drad COMPARING ALL FIELDS.
+
+      IF lt_drad IS NOT INITIAL.
+        SELECT * INTO TABLE lt_dms_doc FROM dms_doc_files
+          FOR ALL ENTRIES IN lt_drad
+                    WHERE dokar = lt_drad-dokar AND
+                          doknr = lt_drad-doknr AND
+                          dokvr = lt_drad-dokvr AND
+                          doktl = lt_drad-doktl.
+      ENDIF.
+      lob_send = cl_bcs=>create_persistent( ).
+      lv_i = 1.
+      lv_c = lv_i.
+      CONDENSE lv_c.
+
+      REFRESH lt_body[].
+      CLEAR lv_body.
+
+      APPEND space TO lt_body.
+      APPEND 'Dear Supplier, ' TO lt_body.
+
+      APPEND space TO lt_body.
+      APPEND space TO lt_body.
+
+      CONCATENATE 'Please find Artworks/ Images for the Materials contained in the Request for Quotation :' im_ekko-ebeln
+      INTO lv_body SEPARATED BY space.
+      APPEND lv_body TO lt_body.
+
+      APPEND space TO lt_body.
+      APPEND space TO lt_body.
+
+      APPEND 'Thanks & Regards ' TO lt_body.
+
+      IF im_ekko-bukrs = 'LP10' OR im_ekko-bukrs = 'LP40'.
+        APPEND 'Lotus Hometextiles Ltd.' TO lt_body.
+      ELSE.
+        APPEND 'Trident Limited.' TO lt_body.
+      ENDIF.
+      APPEND space TO lt_body.
+      APPEND space TO lt_body.
+
+      CONCATENATE 'RFQ' im_ekko-ebeln 'Artwork Part' lv_c
+      INTO lv_sub
+      SEPARATED BY space.
+      lob_document = cl_document_bcs=>create_document(
+                   i_type    = ls_extension
+                   i_text    = lt_body
+                   i_subject = lv_sub ).
+      CLEAR lv_size.
+
+      LOOP AT lt_drad INTO ls_drad.
+
+        CLEAR : lt_dms_files[], ls_dms_files.
+
+        CALL FUNCTION 'CV115_DOC_OPEN_DISPLAY'
+          EXPORTING
+            pf_dokar     = ls_drad-dokar
+            pf_doknr     = ls_drad-doknr
+            pf_doktl     = ls_drad-doktl
+            pf_dokvr     = ls_drad-dokvr
+            pf_read_drat = 'X'
+            pf_read_drad = 'X'
+            pf_read_comp = 'X'
+            pf_read_kpro = 'X'
+            pf_read_drap = 'X'
+          TABLES
+            ptx_files    = lt_dms_files.
+
+        IF sy-subrc <> 0.
+
+        ENDIF.
+
+        IF lt_dms_files[] IS NOT INITIAL.
+          SORT lt_dms_files DESCENDING .
+
+          LOOP AT lt_dms_files INTO ls_dms_files.
+            lt_l_phios[] = ls_dms_files-tbl_phios[].
+
+            CLEAR : lt_bin[], lt_info[], lv_id, lv_cat.
+
+            READ TABLE lt_l_phios INTO ls_tbl_phios INDEX 1.
+            lv_id = ls_tbl_phios-filename.
+            lv_cat = ls_tbl_phios-storage_cat.
+
+            CALL FUNCTION 'SCMS_DOC_READ'
+              EXPORTING
+                stor_cat              = lv_cat
+                doc_id                = lv_id
+                phio_id               = ls_tbl_phios-ph_objid
+              TABLES
+                access_info           = lt_info
+                content_bin           = lt_bin
+              EXCEPTIONS
+                bad_storage_type      = 1
+                bad_request           = 2
+                unauthorized          = 3
+                comp_not_found        = 4
+                not_found             = 5
+                forbidden             = 6
+                conflict              = 7
+                internal_server_error = 8
+                error_http            = 9
+                error_signature       = 10
+                error_config          = 11
+                error_format          = 12
+                error_parameter       = 13
+                error                 = 14
+                OTHERS                = 15.
+
+
+            READ TABLE lt_info INTO ls_info INDEX 1.
+            TRANSLATE ls_info-comp_id TO UPPER CASE.
+
+            CALL FUNCTION 'SCMS_BINARY_TO_XSTRING'
+              EXPORTING
+                input_length = ls_info-comp_size
+              IMPORTING
+                buffer       = lv_xstring
+              TABLES
+                binary_tab   = lt_bin
+              EXCEPTIONS
+                failed       = 1
+                OTHERS       = 2.
+
+            CALL FUNCTION 'SCMS_XSTRING_TO_BINARY'
+              EXPORTING
+                buffer     = lv_xstring
+              TABLES
+                binary_tab = lt_content.
+            lv_size = xstrlen( lv_xstring ).
+            lv_size = lv_size + lv_size.
+            IF lv_size >= 9000000.
+
+              CALL METHOD lob_send->set_document( lob_document ).
+              lob_sender = cl_cam_address_bcs=>create_internet_address( 'customercare@tridentindia.com' ).
+              CALL METHOD lob_send->set_sender
+                EXPORTING
+                  i_sender = lob_sender.
+
+              CLEAR:ls_receivers,ls_ccreceivers.
+              LOOP AT lt_receivers INTO ls_receivers.
+                lv_rec = ls_receivers-receiver.
+                IF ls_receivers-rec_type <> 'C'.
+                  IF ls_receivers-copy = ''.
+                    lob_recipient = cl_cam_address_bcs=>create_internet_address( lv_rec ).
+                    CALL METHOD lob_send->add_recipient
+                      EXPORTING
+                        i_recipient  = lob_recipient
+                        i_express    = abap_true
+                        i_copy       = ' '
+                        i_blind_copy = ' '
+                        i_no_forward = ' '.
+                  ELSE.
+                    lob_recipient = cl_cam_address_bcs=>create_internet_address( lv_rec ).
+                    CALL METHOD lob_send->add_recipient
+                      EXPORTING
+                        i_recipient  = lob_recipient
+                        i_express    = abap_true
+                        i_copy       = ' '
+                        i_blind_copy = ' '
+                        i_no_forward = ' '.
+                  ENDIF.
+                ENDIF.
+              ENDLOOP.
+              lob_recipient =  cl_distributionlist_bcs=>getu_persistent(
+                              i_dliname = 'EXT_MAIL_CC'
+                              i_private = space ).
+              CALL METHOD lob_send->add_recipient
+                EXPORTING
+                  i_recipient  = lob_recipient
+                  i_express    = abap_true
+                  i_copy       = 'X'
+                  i_blind_copy = ' '
+                  i_no_forward = ' '.
+              CALL METHOD lob_send->send( ).
+              lob_send = cl_bcs=>create_persistent( ).
+
+              lv_i = lv_i + 1.
+              lv_c = lv_i.
+              CONDENSE lv_c.
+
+              REFRESH lt_body[].
+              CLEAR lv_body.
+
+              APPEND space TO lt_body.
+              APPEND 'Dear Supplier, ' TO lt_body.
+
+              APPEND space TO lt_body.
+              APPEND space TO lt_body.
+
+              CONCATENATE 'Please find Artworks/ Images for the Materials contained in the Request for Quotation :' im_ekko-ebeln
+              INTO lv_body SEPARATED BY space.
+              APPEND lv_body TO lt_body.
+
+              APPEND space TO lt_body.
+              APPEND space TO lt_body.
+
+              APPEND 'Thanks & Regards ' TO lt_body.
+              IF im_ekko-bukrs = 'LP10' OR im_ekko-bukrs = 'LP40'.
+                APPEND 'Lotus Hometextiles Ltd.' TO lt_body.
+              ELSE.
+                APPEND 'Trident Limited.' TO lt_body.
+              ENDIF.
+
+              APPEND space TO lt_body.
+              APPEND space TO lt_body.
+
+              CONCATENATE 'RFQ' im_ekko-ebeln 'Artwork Part' lv_c
+              INTO lv_sub
+              SEPARATED BY space.
+
+              lob_document = cl_document_bcs=>create_document(
+                           i_type    = ls_extension
+                           i_text    = lt_body
+                           i_subject = lv_sub ).
+
+              lv_size = lv_size.
+
+            ENDIF.
+            READ TABLE lt_dms_doc INTO ls_dms_doc WITH KEY filename = ls_info-comp_id.
+            lv_mat_sub = ls_drad-objky(50).
+
+            CALL FUNCTION 'CONVERSION_EXIT_ALPHA_OUTPUT'
+              EXPORTING
+                input  = lv_mat_sub
+              IMPORTING
+                output = lv_mat_sub.
+
+            CALL METHOD lob_document->add_attachment
+              EXPORTING
+                i_attachment_type    = ls_dms_doc-dappl
+                i_attachment_subject = lv_mat_sub
+                i_att_content_hex    = lt_content[].
+
+          ENDLOOP.
+        ENDIF.
+      ENDLOOP.
+
+      IF lv_size > 0.
+        CALL METHOD lob_send->set_document( lob_document ).
+        lob_sender = cl_cam_address_bcs=>create_internet_address( 'customercare@tridentindia.com' ).
+        CALL METHOD lob_send->set_sender
+          EXPORTING
+            i_sender = lob_sender.
+        CLEAR:ls_receivers,ls_ccreceivers.
+
+        LOOP AT lt_receivers INTO ls_receivers.
+          lv_rec =  ls_receivers-receiver.
+          IF ls_receivers-rec_type <> 'C'.
+            IF ls_receivers-copy = ''.
+              lob_recipient = cl_cam_address_bcs=>create_internet_address( lv_rec ).
+
+              CALL METHOD lob_send->add_recipient
+                EXPORTING
+                  i_recipient  = lob_recipient
+                  i_express    = abap_true
+                  i_copy       = ' '
+                  i_blind_copy = ' '
+                  i_no_forward = ' '.
+            ELSE.
+              lob_recipient = cl_cam_address_bcs=>create_internet_address( lv_rec ).
+              CALL METHOD lob_send->add_recipient
+                EXPORTING
+                  i_recipient  = lob_recipient
+                  i_express    = abap_true
+                  i_copy       = ' '
+                  i_blind_copy = ' '
+                  i_no_forward = ' '.
+
+            ENDIF.
+          ENDIF.
+        ENDLOOP.
+        lob_recipient =  cl_distributionlist_bcs=>getu_persistent(
+                        i_dliname = 'EXT_MAIL_CC'
+                        i_private = space ).
+        CALL METHOD lob_send->add_recipient
+          EXPORTING
+            i_recipient  = lob_recipient
+            i_express    = abap_true
+            i_copy       = 'X'
+            i_blind_copy = ' '
+            i_no_forward = ' '.
+
+        CALL METHOD lob_send->send( ).
+        CLEAR lv_size.
+      ENDIF.
+    ENDIF.
+
+
+********************************************************************************************************
+***---------- End of Validation system should trigger popup for sending 2 mails to vendors ------------*
+********************************************************************************************************
+
+
+
+
+
+  ENDMETHOD.
