@@ -1,0 +1,757 @@
+*&---------------------------------------------------------------------*
+*& Include          ZXQEVU12
+*&---------------------------------------------------------------------*
+TYPES : BEGIN OF lty_final,
+          min_number          TYPE  qals-mblnr,
+          material            TYPE qals-selmatnr,
+          inspection_lot      TYPE qals-prueflos,
+          quantity            TYPE char16,
+          supplier            TYPE  elifn,
+          inspection_lot_date TYPE qals-ersteldat,
+        END OF lty_final.
+
+TYPES : BEGIN OF lty_qamr,
+          prueflos TYPE qplos,
+          mbewertg TYPE qmbewertg,
+        END OF lty_qamr.
+
+DATA: lt_final1       TYPE STANDARD TABLE OF lty_final,
+      ls_final        TYPE lty_final,
+      lt_receivers    TYPE STANDARD TABLE OF  somlreci1,
+      ls_receivers    LIKE LINE OF lt_receivers,
+      lt_packing_list TYPE STANDARD TABLE OF  sopcklsti1,
+      ls_doc_data     TYPE sodocchgi1,
+      ls_packing_list LIKE LINE OF  lt_packing_list,
+      lv_subject(50)  TYPE c,
+      lt_message      TYPE STANDARD TABLE OF solisti1,
+      lt_message1     TYPE STANDARD TABLE OF solisti1,
+      lt_message2     TYPE STANDARD TABLE OF solisti1,
+      ls_message      LIKE LINE OF lt_message,
+      ls_message1     LIKE LINE OF lt_message,
+      lv_lines        TYPE i,
+      lv_sr_no        TYPE i,
+      lv_date         TYPE char10,
+      lv_bgcolor      TYPE char7,
+      lv_ver_email    TYPE char255,
+      lv_ast_email    TYPE char255,
+      lt_obj_hdr      TYPE TABLE OF solisti1,
+      ls_obj_hdr      TYPE solisti1.
+
+DATA :
+  lt_qamr TYPE STANDARD TABLE OF lty_qamr, "Added by Prachi
+  ls_qamr TYPE lty_qamr. "Added by Prachi
+
+IF sy-ucomm = 'BU' OR sy-ucomm = 'SEL' OR sy-ucomm = ' ' . "and I_RQEVA-VBEWERTUNG is not INITIAL. .
+*&---------------------------------------------------------------------*
+*& Developer Name/ID  : <Prachi Gorde / BCONE-C01012>
+*& Functional Name    : <Atul Tulaskar>
+*& FS ID              : <QM14>
+*& Request No         : <TSDK901870>
+*& Solman No          : <SOLMAN NO + CD>
+*& Description        : Copy Prgm / <UD can't accept lot if MIC is rejected>
+*&                      <Changes - Issue & Resolution in WORDS>
+*& Creation Date      : <27.12.2022>
+*& Modify Id          : NA
+*&                      Start of changes <UnqID>/End of changes <UnqID>
+*&---------------------------------------------------------------------*
+
+  SELECT  prueflos    "Fetch data from QAMR for only 'R' records.
+           mbewertg
+  FROM qamr
+  INTO TABLE lt_qamr
+  WHERE prueflos = i_qals-prueflos.
+
+  IF lt_qamr IS NOT INITIAL.
+    READ TABLE lt_qamr INTO ls_qamr WITH  KEY  prueflos = i_qals-prueflos mbewertg = 'R' .
+  ENDIF.
+**************End*************************************************
+  IF i_rqeva-vcode = 'R' AND i_rqeva-vbewertung = 'R'.
+
+*    IF i_qals-herkunft = '01'.
+    IF i_qals-art = '01' OR i_qals-art = '09' OR i_qals-art = '05' OR i_qals-art = '0101' .
+      SELECT SINGLE a~ebeln ,a~ekgrp,b~smtp_addr FROM ekko AS a INNER JOIN t024 AS b ON a~ekgrp = b~ekgrp
+                                                                INTO @DATA(ls_address)
+                                                                WHERE ebeln = @i_qals-ebeln.
+      IF ls_address IS NOT INITIAL.
+        SELECT SINGLE maktx FROM makt INTO @DATA(lv_maltx) WHERE matnr = @i_qals-selmatnr.
+
+        CONCATENATE sy-datum+6(2) '.' sy-datum+4(2) '.' sy-datum(4) INTO lv_date.
+        lv_subject = |Rejected Inspection lot for { i_qals-selmatnr } in Plant { i_qals-selwerk }|.
+        ls_obj_hdr-line = |Rejected Inspection lot for { i_qals-selmatnr } in Plant { i_qals-selwerk }|.
+        APPEND ls_obj_hdr TO lt_obj_hdr.              " ++ added by vravikumar dt:09/02/2023
+
+        APPEND space TO lt_message1.
+        ls_message-line = '<TABLE  width= "100%" >'.
+        APPEND ls_message TO lt_message1.
+*        CONCATENATE '<TR><td align = "LEFT" >' '<FONT COLOR = "BLACK" face="Garamond">Dear Purchaser, </FONT>'    '</td></tr>'  INTO ls_message. " -- commented on 08/02/2023 ravikumar
+        CONCATENATE '<TR><td align = "LEFT" >' '<FONT COLOR = "BLACK" face="Garamond">Dear Member, </FONT>'    '</td></tr>'  INTO ls_message." ++ added on 08/02/2023 ravikumar
+        APPEND ls_message TO lt_message1.
+        CLEAR ls_message.
+        CONCATENATE '<TR><td align = "LEFT" >' '</td></tr>'  INTO ls_message1.
+        APPEND ls_message TO lt_message1.
+        CLEAR  ls_message.
+*        (-) boc on dt: 08/02/2023 ravikumar
+*        CONCATENATE '<TR><td align = "LEFT" >' '<FONT COLOR = "BLACK" face="Garamond">Please find the below details of rejected inspection lot as on   '
+*        lv_date '</td></tr>'  INTO ls_message SEPARATED BY space.
+*         (-> eoc on dt: 08/02/2023 ravikumar
+
+*        (+) boc on dt: 08/02/2023 ravikumar
+        CONCATENATE '<TR><td align = "LEFT" >' '<FONT COLOR = "BLACK" face="Garamond">Please find the below details of rejected inspection lot for plant '
+        i_qals-selwerk '</td></tr>'  INTO ls_message SEPARATED BY space.
+        APPEND ls_message TO lt_message1.
+*        (+) eoc on dt: 08/02/2023 ravikumar
+
+        CONCATENATE '<TR><td align = "LEFT" >' '</td></tr>'  INTO ls_message.
+        APPEND ls_message TO lt_message1.
+        CLEAR  ls_message.
+        ls_message-line = '</TABLE>'.
+        APPEND ls_message TO lt_message1.
+        CLEAR  ls_message.
+        ls_message-line = '<TABLE  width= "50%" border="1">'.
+        APPEND ls_message TO lt_message1. "BGCOLOR = "#707090"
+        CLEAR  ls_message.
+
+        CONCATENATE '<td align = "CENTRE">'  '<FONT COLOR = "BLACK" face="Garamond"><B>MIN Number </B> </FONT>'    '</td>'  INTO ls_message.
+        APPEND ls_message TO lt_message1.
+        CONCATENATE '<td align = "CENTRE"  >'  '<FONT COLOR = "BLACK" face="Garamond"><B>Material</B> </FONT>'    '</td>'  INTO ls_message.
+        APPEND ls_message TO lt_message1.
+        CONCATENATE '<td align = "CENTRE"  >'  '<FONT COLOR = "BLACK" face="Garamond"><B>Material Description </B> </FONT>'    '</td>'  INTO ls_message.
+        APPEND ls_message TO lt_message1.
+        CONCATENATE '<td align = "CENTRE"  >'  '<FONT COLOR = "BLACK" face="Garamond"><B>Inspection Lot </B> </FONT>'    '</td>'  INTO ls_message.
+        APPEND ls_message TO lt_message1.
+        CONCATENATE '<td align = "CENTRE"  >'  '<FONT COLOR = "BLACK" face="Garamond"><B>Quantity</B> </FONT>'    '</td>'  INTO ls_message.
+        APPEND ls_message TO lt_message1.
+*        (+) boc dt:08/02/2023 vravikumar
+        CONCATENATE '<td align = "CENTRE"  >'  '<FONT COLOR = "BLACK" face="Garamond"><B>Reason</B> </FONT>'    '</td>'  INTO ls_message.
+        APPEND ls_message TO lt_message1.
+        CONCATENATE '<td align = "CENTRE"  >'  '<FONT COLOR = "BLACK" face="Garamond"><B>Sales Order</B> </FONT>'    '</td>'  INTO ls_message.
+        APPEND ls_message TO lt_message1.
+        CONCATENATE '<td align = "CENTRE"  >'  '<FONT COLOR = "BLACK" face="Garamond"><B>SO Line Item</B> </FONT>'    '</td>'  INTO ls_message.
+        APPEND ls_message TO lt_message1.
+*        (+) eoc dt:08/02/2023 vravikumar
+        CONCATENATE '<td align = "CENTRE"  >'  '<FONT COLOR = "BLACK" face="Garamond"><B>Supplier</B> </FONT>'    '</td>'  INTO ls_message.
+        APPEND ls_message TO lt_message1.
+        CONCATENATE '<td align = "CENTRE"  >'  '<FONT COLOR = "BLACK" face="Garamond"><B>Inspection lot date </B> </FONT>'    '</td>'  INTO ls_message.
+        APPEND ls_message TO lt_message1.
+*        (+) boc dt:08/02/2023 vravikumar
+        CONCATENATE '<td align = "CENTRE"  >'  '<FONT COLOR = "BLACK" face="Garamond"><B>UD code </B> </FONT>'    '</td>'  INTO ls_message.
+        APPEND ls_message TO lt_message1.
+*        (+) eoc dt:08/02/2023 vravikumar
+
+        CLEAR ls_message.
+        DATA : lv_qty TYPE char16.
+        lv_qty = i_qals-losmenge.
+
+        CONCATENATE '<TR><td align = "CENTRE" >'  '<FONT COLOR = "BLACK" face="Garamond">'i_qals-mblnr'</FONT>'    '</td>'  INTO ls_message.
+        APPEND ls_message TO lt_message2.
+        CLEAR ls_message.
+
+        CONCATENATE '<td align = "CENTRE" >'  '<FONT COLOR = "BLACK" face="Garamond">'i_qals-selmatnr' </FONT>'    '</td>'  INTO ls_message.
+        APPEND ls_message TO lt_message2.
+        CLEAR ls_message.
+
+        CONCATENATE '<td align = "CENTRE" >'  '<FONT COLOR = "BLACK" face="Garamond">'lv_maltx'</FONT>'    '</td>'  INTO ls_message. "New
+        APPEND ls_message TO lt_message2.
+        CLEAR ls_message.
+
+        CONCATENATE '<td align = "CENTRE" >'  '<FONT COLOR = "BLACK" face="Garamond">'i_qals-prueflos'</FONT>'    '</td>'  INTO ls_message.
+        APPEND ls_message TO lt_message2.
+        CLEAR ls_message.
+
+        CONCATENATE '<td align = "CENTRE" >'  '<FONT COLOR = "BLACK" face="Garamond">'lv_qty'</FONT>'    '</td>'  INTO ls_message.
+        APPEND ls_message TO lt_message2.
+        CLEAR ls_message.
+
+*        (+) boc dt:08/02/2023 vravikumar
+        CONCATENATE '<td align = "CENTRE" >'  '<FONT COLOR = "BLACK" face="Garamond">'i_qave-zremark'</FONT>'    '</td>'  INTO ls_message.
+        APPEND ls_message TO lt_message2.
+        CLEAR ls_message.
+
+        CONCATENATE '<td align = "CENTRE" >'  '<FONT COLOR = "BLACK" face="Garamond">'i_qals-kdauf'</FONT>'    '</td>'  INTO ls_message.
+        APPEND ls_message TO lt_message2.
+        CLEAR ls_message.
+
+        CONCATENATE '<td align = "CENTRE" >'  '<FONT COLOR = "BLACK" face="Garamond">'i_qals-kdpos'</FONT>'    '</td>'  INTO ls_message.
+        APPEND ls_message TO lt_message2.
+        CLEAR ls_message.
+*       (+) eoc dt:08/02/2023 vravikumar
+
+        CONCATENATE '<td align = "CENTRE" >'  '<FONT COLOR = "BLACK" face="Garamond">'i_qals-sellifnr'</FONT>'    '</td>'  INTO ls_message.
+        APPEND ls_message TO lt_message2.
+        CLEAR ls_message.
+
+        DATA(lv_user_format) = |{ i_qals-ersteldat DATE = USER }|.
+
+        CONCATENATE '<td align = "CENTRE" >'  '<FONT COLOR = "BLACK" face="Garamond">'lv_user_format' </FONT>'    '</td>'  INTO ls_message.
+        APPEND ls_message TO lt_message2.
+        CLEAR ls_message.
+
+*        (+) boc dt: 08/02/2023 vravikumar
+        CONCATENATE '<td align = "CENTRE" >'  '<FONT COLOR = "BLACK" face="Garamond">'i_qave-vcode' </FONT>'    '</td>'  INTO ls_message.
+        APPEND ls_message TO lt_message2.
+        CLEAR ls_message.
+*        (+) eco dt:08/02/2023 vravikumar
+
+        APPEND LINES OF lt_message1 TO lt_message.
+
+        APPEND LINES OF lt_message2 TO lt_message.
+
+        ls_message-line = '</TABLE>'.
+        APPEND ls_message TO lt_message.
+        CLEAR  ls_message.
+
+        CONCATENATE '<TR><td align = "LEFT"  >'  '<FONT COLOR = "BLACK"  SIZE = "4" face="Garamond"> </FONT>'    '</td></TR>'  INTO ls_message.
+        APPEND ls_message TO lt_message.
+        CLEAR ls_message.
+
+        CONCATENATE '<TR><td align = "LEFT"  >'  '<FONT COLOR = "BLACK"  SIZE = "4" face="Garamond"> </FONT>'    '</td></TR>'  INTO ls_message.
+        APPEND ls_message TO lt_message.
+        CLEAR ls_message.
+
+        ls_message-line = '<TABLE WIDTH= "80%" BORDER="0">'.
+        APPEND ls_message TO lt_message.
+        CLEAR ls_message.
+        CONCATENATE '<TR><td align = "LEFT"  >'  '<FONT COLOR = "BLACK"  SIZE = "4" face="Garamond">Thanking You,</FONT>'    '</td></TR>'  INTO ls_message.
+        APPEND ls_message TO lt_message.
+        CLEAR ls_message.
+
+        CONCATENATE '<TR><TR><td align = "LEFT"  >'  '<FONT COLOR = "BLACK"  SIZE = "4" face="Garamond">Trident Ltd.</FONT>'    '</td></TR>'  INTO ls_message.
+        APPEND ls_message TO lt_message.
+        CLEAR ls_message.
+
+        ls_message-line = '</TABLE>'.
+        APPEND ls_message TO lt_message.
+        CLEAR  ls_message.
+
+        IF lt_receivers IS INITIAL.
+          ls_receivers-receiver   = ls_address-smtp_addr."ls_final-ver_email. "'vaibhav.madan@bristlecone.com'. "&---- Assign Email id
+          ls_receivers-rec_type   = 'U'.               "&---- Send to External Email id
+          ls_receivers-com_type   = 'INT'.
+          ls_receivers-notif_del  = 'X'.
+          ls_receivers-notif_ndel = 'X'.
+          APPEND ls_receivers TO lt_receivers .
+          CLEAR ls_receivers.
+*          (-) boc dt:08/02/2023 vravikumar
+          DATA : lv_dl TYPE so_recname VALUE 'ZQM_REJ_CC'.
+*          ls_receivers-receiver   = lv_dl."ls_final-ver_email. "'vaibhav.madan@bristlecone.com'. "&---- Assign Email id
+*          ls_receivers-rec_type   = 'C'.               "&---- Send to External Email id
+*          ls_receivers-com_type   = 'INT'.
+*          ls_receivers-notif_del  = 'X'.
+*          ls_receivers-notif_ndel = 'X'.
+*          ls_receivers-copy       = 'X'.
+*          APPEND ls_receivers TO lt_receivers .
+*          CLEAR ls_receivers.
+*          (-) eoc dt:08/02/2023 vravikumar
+
+*           (+) boc dt:08/02/2023 vravikumar
+          " to address
+          lv_dl = 'QM_T301_OPLT'.
+          IF NOT lv_dl IS INITIAL.
+            DATA lv_DLI_NAME TYPE   soobjinfi1-obj_name.
+            DATA lt_email TYPE TABLE OF sodlienti1.
+            DATA ls_email TYPE sodlienti1.
+            DATA ls_msg   TYPE bal_s_msg.
+            lv_DLI_NAME = lv_dl.
+            CALL FUNCTION 'SO_DLI_READ_API1'
+              EXPORTING
+                dli_name                   = lv_dli_name
+                shared_dli                 = abap_true
+              TABLES
+                dli_entries                = lt_email
+              EXCEPTIONS
+                dli_not_exist              = 1
+                operation_no_authorization = 2
+                parameter_error            = 3
+                x_error                    = 4
+                OTHERS                     = 5.
+
+            IF sy-subrc <> 0.
+            ELSE.
+              LOOP AT lt_email INTO ls_email.
+                ls_receivers-receiver   = ls_email-member_adr.
+                ls_receivers-rec_type   = 'U'.
+                ls_receivers-com_type   = 'INT'.
+                ls_receivers-notif_del  = 'X'.
+                ls_receivers-notif_ndel = 'X'.
+                APPEND ls_receivers TO lt_receivers.
+                clear ls_receivers.
+              ENDLOOP.
+            ENDIF.
+          ENDIF.
+
+          " cc address
+          lv_dl = 'QM_CC_OPLT'.
+          ls_receivers-receiver   = lv_dl."ls_final-ver_email. "'vaibhav.madan@bristlecone.com'. "&---- Assign Email id
+          ls_receivers-rec_type   = 'C'.               "&---- Send to External Email id
+          ls_receivers-com_type   = 'INT'.
+          ls_receivers-notif_del  = 'X'.
+          ls_receivers-notif_ndel = 'X'.
+          ls_receivers-copy       = 'X'.
+          APPEND ls_receivers TO lt_receivers .
+          CLEAR ls_receivers.
+*           (+) eoc dt:08/02/2023 vravikumar
+        ENDIF.
+
+        "Send email
+        DESCRIBE TABLE lt_message LINES lv_lines.
+        READ TABLE lt_message INTO ls_message INDEX lv_lines.
+*    ls_doc_data-doc_size = 1.
+        ls_doc_data-doc_size = ( lv_lines - 1 ) * 255 + strlen( ls_message ).
+*Populate the subject/generic message attributes
+        ls_doc_data-obj_langu   = sy-langu.
+        ls_doc_data-obj_name    = 'SAPRPT'.
+        ls_doc_data-obj_descr   = lv_subject.
+        ls_doc_data-sensitivty  = 'F'.
+*Describe the body of the message
+        CLEAR ls_packing_list.
+        ls_packing_list-body_start = 1.
+        DESCRIBE TABLE lt_message LINES ls_packing_list-body_num.
+        ls_packing_list-doc_type = 'HTM'.  "RAW
+        APPEND ls_packing_list TO lt_packing_list.
+
+        IF lt_receivers IS NOT INITIAL.
+
+          CALL FUNCTION 'SO_NEW_DOCUMENT_ATT_SEND_API1'
+            EXPORTING
+              document_data              = ls_doc_data
+              commit_work                = abap_true
+            TABLES
+              packing_list               = lt_packing_list
+              contents_txt               = lt_message
+              receivers                  = lt_receivers
+              object_header              = lt_obj_hdr     " ++ added by vravikumar dt:09/02/2023
+            EXCEPTIONS
+              too_many_receivers         = 1
+              document_not_sent          = 2
+              document_type_not_exist    = 3
+              operation_no_authorization = 4
+              parameter_error            = 5
+              x_error                    = 6
+              enqueue_error              = 7
+              OTHERS                     = 8.
+          IF sy-subrc EQ 0.
+*          gv_flag_mail = 'X'.
+          ENDIF.
+        ENDIF.
+        REFRESH :lt_receivers, lt_message, lt_message2,lt_packing_list.
+        CLEAR : ls_doc_data.
+
+      ENDIF.
+
+    ENDIF.
+
+
+*----------------------------------------------- Added by Shraddha   -----------------------------------------------------------
+
+    IF i_qals-herkunft = '17' AND i_qals-art = 'T8' OR i_qals-art = '08'.
+
+      CONSTANTS : lc_var TYPE string VALUE 'ZQM_TROLLY_MAIL',   " tvarvc field.
+                  lc_val TYPE string VALUE 'ZQM_TROLLY_SMS'.
+
+      DATA : lt_tvarvc1 TYPE STANDARD TABLE OF tvarvc,
+             lt_tvarvc  TYPE STANDARD TABLE OF tvarvc.
+
+      DATA : lv_txt  TYPE string,
+             lr_text TYPE bcsy_text.
+
+      DATA: lob_document      TYPE REF TO cl_document_bcs,
+            lob_sender        TYPE REF TO cl_sapuser_bcs,
+            lob_recipient     TYPE REF TO if_recipient_bcs,
+            lob_bcs_exception TYPE REF TO cx_bcs,
+            lob_send_request  TYPE REF TO cl_bcs.
+
+      DATA: lv_sent_to_all TYPE os_boolean,
+            lv_sms_num     TYPE ad_pagnmbr.
+
+
+      CALL METHOD zcacl_tvarvc_utility=>get_variant_range
+        EXPORTING
+          im_name  = lc_var
+        IMPORTING
+          ex_range = lt_tvarvc1.
+
+      LOOP AT lt_tvarvc1 INTO DATA(ls_tvarvc1).
+
+        IF ls_tvarvc1-low IS NOT INITIAL.
+
+          SELECT SINGLE maktx FROM makt INTO @DATA(lv_maltxx) WHERE matnr = @i_qals-selmatnr.
+
+          CONCATENATE sy-datum+6(2) '.' sy-datum+4(2) '.' sy-datum(4) INTO lv_date.
+          lv_subject = |Alert for trolly rejection { i_qals-selmatnr } in Plant { i_qals-selwerk }|.
+
+          APPEND space TO lt_message1.
+          ls_message-line = '<TABLE  width= "100%" >'.
+          APPEND ls_message TO lt_message1.
+          CONCATENATE '<TR><td align = "LEFT" >' '<FONT COLOR = "BLACK" face="Garamond">Dear Team, </FONT>'    '</td></tr>'  INTO ls_message.
+          APPEND ls_message TO lt_message1.
+          CLEAR ls_message.
+          CONCATENATE '<TR><td align = "LEFT" >' '</td></tr>'  INTO ls_message1.
+          APPEND ls_message TO lt_message1.
+          CLEAR  ls_message.
+          CONCATENATE '<TR><td align = "LEFT" >' '<FONT COLOR = "BLACK" face="Garamond"> QA team has rejected the inpection lot number ' i_qals-prueflos '</td></tr>'  INTO ls_message SEPARATED BY space.
+          APPEND ls_message TO lt_message1.
+          CONCATENATE '<TR><td align = "LEFT" >' '</td></tr>'  INTO ls_message.
+          APPEND ls_message TO lt_message1.
+          CLEAR  ls_message.
+          ls_message-line = '</TABLE>'.
+          APPEND ls_message TO lt_message1.
+          CLEAR  ls_message.
+          ls_message-line = '<TABLE  width= "50%" border="1">'.
+          APPEND ls_message TO lt_message1. "BGCOLOR = "#707090"
+          CLEAR  ls_message.
+
+          CONCATENATE '<td align = "CENTRE">'  '<FONT COLOR = "BLACK" face="Garamond"><B>Team no.</B> </FONT>'    '</td>'  INTO ls_message.
+          APPEND ls_message TO lt_message1.
+          CONCATENATE '<td align = "CENTRE"  >'  '<FONT COLOR = "BLACK" face="Garamond"><B>Material</B> </FONT>'    '</td>'  INTO ls_message.
+          APPEND ls_message TO lt_message1.
+          CONCATENATE '<td align = "CENTRE"  >'  '<FONT COLOR = "BLACK" face="Garamond"><B>Material Description </B> </FONT>'    '</td>'  INTO ls_message.
+          APPEND ls_message TO lt_message1.
+          CONCATENATE '<td align = "CENTRE"  >'  '<FONT COLOR = "BLACK" face="Garamond"><B>Trolly Number </B> </FONT>'    '</td>'  INTO ls_message.
+          APPEND ls_message TO lt_message1.
+          CONCATENATE '<td align = "CENTRE"  >'  '<FONT COLOR = "BLACK" face="Garamond"><B>A Grade PCS</B> </FONT>'    '</td>'  INTO ls_message.
+          APPEND ls_message TO lt_message1.
+          CONCATENATE '<td align = "CENTRE"  >'  '<FONT COLOR = "BLACK" face="Garamond"><B>Shift</B> </FONT>'    '</td>'  INTO ls_message.
+          APPEND ls_message TO lt_message1.
+          CONCATENATE '<td align = "CENTRE"  >'  '<FONT COLOR = "BLACK" face="Garamond"><B>Critical Text </B> </FONT>'    '</td>'  INTO ls_message.
+          APPEND ls_message TO lt_message1.
+
+          CLEAR ls_message.
+          DATA : lv_qtyy TYPE char16.
+          lv_qtyy = i_qals-losmenge.
+
+          CONCATENATE '<TR><td align = "CENTRE" >'  '<FONT COLOR = "BLACK" face="Garamond">''</FONT>'    '</td>'  INTO ls_message."i_qals-mblnr
+          APPEND ls_message TO lt_message2.
+          CLEAR ls_message.
+
+          CONCATENATE '<td align = "CENTRE" >'  '<FONT COLOR = "BLACK" face="Garamond">'i_qals-selmatnr' </FONT>'    '</td>'  INTO ls_message.
+          APPEND ls_message TO lt_message2.
+          CLEAR ls_message.
+
+          CONCATENATE '<td align = "CENTRE" >'  '<FONT COLOR = "BLACK" face="Garamond">'lv_maltxx'</FONT>'    '</td>'  INTO ls_message. "New
+          APPEND ls_message TO lt_message2.
+          CLEAR ls_message.
+
+          CONCATENATE '<td align = "CENTRE" >'  '<FONT COLOR = "BLACK" face="Garamond">''</FONT>'    '</td>'  INTO ls_message. "i_qals-prueflos
+          APPEND ls_message TO lt_message2.
+          CLEAR ls_message.
+
+          CONCATENATE '<td align = "CENTRE" >'  '<FONT COLOR = "BLACK" face="Garamond">'lv_qtyy'</FONT>'    '</td>'  INTO ls_message.
+          APPEND ls_message TO lt_message2.
+          CLEAR ls_message.
+
+          CONCATENATE '<td align = "CENTRE" >'  '<FONT COLOR = "BLACK" face="Garamond">' '</FONT>'    '</td>'  INTO ls_message. "i_qals-sellifnr
+          APPEND ls_message TO lt_message2.
+          CLEAR ls_message.
+
+          DATA(lv_user_formatn) = |{ i_qals-ersteldat DATE = USER }|.
+
+          CONCATENATE '<td align = "CENTRE" >'  '<FONT COLOR = "BLACK" face="Garamond">' ' </FONT>'    '</td>'  INTO ls_message.  "l_user_format
+          APPEND ls_message TO lt_message2.
+          CLEAR ls_message.
+
+
+          APPEND LINES OF lt_message1 TO lt_message.
+          CLEAR lt_message1.
+          APPEND LINES OF lt_message2 TO lt_message.
+          ls_message-line = '</TABLE>'.
+          APPEND ls_message TO lt_message.
+          CLEAR  ls_message.
+
+          CONCATENATE '<TR><td align = "LEFT"  >'  '<FONT COLOR = "BLACK"  SIZE = "4" face="Garamond"> </FONT>'    '</td></TR>'  INTO ls_message.
+          APPEND ls_message TO lt_message.
+          CLEAR ls_message.
+
+          CONCATENATE '<TR><td align = "LEFT"  >'  '<FONT COLOR = "BLACK"  SIZE = "4" face="Garamond"> </FONT>'    '</td></TR>'  INTO ls_message.
+          APPEND ls_message TO lt_message.
+          CLEAR ls_message.
+
+          ls_message-line = '<TABLE WIDTH= "80%" BORDER="0">'.
+          APPEND ls_message TO lt_message.
+          CLEAR ls_message.
+          CONCATENATE '<TR><td align = "LEFT"  >'  '<FONT COLOR = "BLACK"  SIZE = "4" face="Garamond">Regards,</FONT>'    '</td></TR>'  INTO ls_message.
+          APPEND ls_message TO lt_message.
+          CLEAR ls_message.
+
+          CONCATENATE '<TR><TR><td align = "LEFT"  >'  '<FONT COLOR = "BLACK"  SIZE = "4" face="Garamond">Trident Group.</FONT>'    '</td></TR>'  INTO ls_message.
+          APPEND ls_message TO lt_message.
+          CLEAR ls_message.
+
+          ls_message-line = '</TABLE>'.
+          APPEND ls_message TO lt_message.
+          CLEAR  ls_message.
+
+
+
+          IF lt_receivers IS INITIAL.
+            ls_receivers-receiver   = ls_tvarvc1-low.
+            ls_receivers-rec_type   = 'U'.               "&---- Send to External Email id
+            ls_receivers-com_type   = 'INT'.
+            ls_receivers-notif_del  = 'X'.
+            ls_receivers-notif_ndel = 'X'.
+            APPEND ls_receivers TO lt_receivers .
+            CLEAR ls_receivers.
+
+            DATA : lv_dll TYPE so_recname VALUE 'ZQM_TROLLY_MAIL'.                      "'ZQM_REJ_CC'.
+            ls_receivers-receiver   = lv_dll.             "&---- Assign Email id
+            ls_receivers-rec_type   = 'C'.               "&---- Send to External Email id
+            ls_receivers-com_type   = 'INT'.
+            ls_receivers-notif_del  = 'X'.
+            ls_receivers-notif_ndel = 'X'.
+            ls_receivers-copy       = 'X'.
+            APPEND ls_receivers TO lt_receivers .
+            CLEAR ls_receivers.
+
+          ENDIF.
+
+          "Send email
+          DESCRIBE TABLE lt_message LINES lv_lines.
+          READ TABLE lt_message INTO ls_message INDEX lv_lines.
+*    ls_doc_data-doc_size = 1.
+          ls_doc_data-doc_size = ( lv_lines - 1 ) * 255 + strlen( ls_message ).
+*Populate the subject/generic message attributes
+          ls_doc_data-obj_langu   = sy-langu.
+          ls_doc_data-obj_name    = 'SAPRPT'.
+          ls_doc_data-obj_descr   = lv_subject.
+          ls_doc_data-sensitivty  = 'F'.
+*Describe the body of the message
+          CLEAR ls_packing_list.
+          ls_packing_list-body_start = 1.
+          DESCRIBE TABLE lt_message LINES ls_packing_list-body_num.
+          ls_packing_list-doc_type = 'HTM'.  "RAW
+          APPEND ls_packing_list TO lt_packing_list.
+
+          IF lt_receivers IS NOT INITIAL.
+
+            CALL FUNCTION 'SO_NEW_DOCUMENT_ATT_SEND_API1'
+              EXPORTING
+                document_data              = ls_doc_data
+                commit_work                = abap_true
+              TABLES
+                packing_list               = lt_packing_list
+                contents_txt               = lt_message
+                receivers                  = lt_receivers
+              EXCEPTIONS
+                too_many_receivers         = 1
+                document_not_sent          = 2
+                document_type_not_exist    = 3
+                operation_no_authorization = 4
+                parameter_error            = 5
+                x_error                    = 6
+                enqueue_error              = 7
+                OTHERS                     = 8.
+            IF sy-subrc EQ 0.
+*          gv_flag_mail = 'X'.
+            ENDIF.
+
+          ENDIF.
+          REFRESH :lt_receivers, lt_message, lt_message2,lt_packing_list.
+          CLEAR : ls_doc_data.
+
+        ENDIF.
+        CLEAR: ls_tvarvc1-low.
+      ENDLOOP.
+
+      " For SMS
+
+
+      CALL METHOD zcacl_tvarvc_utility=>get_variant_range
+        EXPORTING
+          im_name  = lc_val
+        IMPORTING
+          ex_range = lt_tvarvc.
+
+
+      CONCATENATE ' Dear' 'Team ' INTO lv_txt.
+      APPEND lv_txt TO lr_text.
+      CLEAR lv_txt.
+
+      APPEND space TO lr_text.
+
+      CONCATENATE ' QA team has rejected the inpection lot number ' i_qals-prueflos INTO lv_txt SEPARATED BY space.
+      APPEND lv_txt TO lr_text.
+      CONCATENATE 'Material No:' i_qals-selmatnr  INTO lv_txt.
+      APPEND lv_txt TO lr_text.
+      CLEAR  lv_txt.
+
+      CONCATENATE 'Material Description' : lv_maltxx  INTO lv_txt.
+      APPEND lv_txt TO lr_text.
+      CLEAR  lv_txt.
+
+      CONCATENATE 'A Grade pcs:'lv_qtyy  INTO lv_txt.
+      APPEND lv_txt TO lr_text.
+      CLEAR  lv_txt.
+
+      CONCATENATE 'Trolly ' 'Number: ' INTO lv_txt.
+      APPEND lv_txt TO lr_text.
+      CLEAR  lv_txt.
+
+      CONCATENATE ' Team '  ' No:' INTO lv_txt.
+      APPEND lv_txt TO lr_text.
+      CLEAR  lv_txt.
+
+      CONCATENATE 'Critical'  'Text:' INTO lv_txt.
+      APPEND lv_txt TO lr_text.
+      CLEAR  lv_txt.
+
+      APPEND space TO lr_text.
+
+      CONCATENATE 'Regards' 'Trident Group' INTO lv_txt.
+      APPEND lv_txt TO lr_text.
+      CLEAR  lv_txt.
+
+      LOOP AT lt_tvarvc INTO DATA(ls_tvarvc).
+
+        TRY.
+
+*-------- create persistent send request ------------------------
+
+            lob_send_request = cl_bcs=>create_persistent( ).
+
+*-------- create and set document -------------------------------
+
+*create document from internal table with text
+
+*               APPEND p_pa_txt TO text.
+
+            lob_document = cl_document_bcs=>create_document(
+              i_type    = 'RAW'
+              i_text    = lr_text
+              i_length  = '12'
+              i_subject = 'Alert for trolly rejection ' ).
+
+
+*add document to send request
+            CALL METHOD lob_send_request->set_document( lob_document ).
+*--------- set sender -------------------------------------------
+            lob_sender = cl_sapuser_bcs=>create( sy-uname ).
+
+            CALL METHOD lob_send_request->set_sender
+              EXPORTING
+                i_sender = lob_sender.
+
+*--------- add recipient (e-mail address) -----------------------
+
+            lv_sms_num = ls_tvarvc-low.
+
+            lob_recipient = cl_cam_address_bcs=>create_sms_address(
+              lv_sms_num ).
+
+*add recipient with its respective attributes to send request
+
+            CALL METHOD lob_send_request->add_recipient
+              EXPORTING
+                i_recipient = lob_recipient
+                i_express   = 'X'.
+
+*set immediate processing, instead of queues
+
+            lob_send_request->set_send_immediately( 'X' ).
+
+*---------- send document ---------------------------------------
+
+            CALL METHOD lob_send_request->send(
+              EXPORTING
+                i_with_error_screen = 'X'
+              RECEIVING
+                result              = lv_sent_to_all ).
+
+            IF lv_sent_to_all = 'X'.
+
+            ENDIF.
+
+            COMMIT WORK.
+
+          CATCH cx_bcs INTO lob_bcs_exception.
+
+            RAISE sms_sending_failed.
+
+            EXIT.
+
+        ENDTRY.
+
+      ENDLOOP.
+
+
+******************************************************************************************************sms
+
+
+    ENDIF.
+
+
+
+
+
+****************************************************************************************************SHRADDHA
+********************Added by Prachi*******************
+  ELSEIF ls_qamr-mbewertg EQ 'R' AND i_rqeva-vbewertung EQ 'A'. "Display message if  ls_qamr-mbewertg and i_rqeva-vbewertung are not same.
+    MESSAGE e001(zqm).
+  ENDIF.
+**********************end*******************************
+
+***************  BOC by Vikram
+
+  DATA : lv_days  TYPE pea_scrdd,
+         lv_date1 TYPE p0001-begda,
+         lv_date2 TYPE p0001-begda.
+
+
+  SELECT  prueflos ,
+          selmatnr,
+          selwerk,
+          selkunnr
+  FROM qals
+  INTO @DATA(ls_qals)
+  WHERE prueflos = @i_qals-prueflos AND
+        art      = '10'.
+
+  ENDSELECT.
+
+  IF ls_qals IS NOT INITIAL .
+
+    SELECT SINGLE matgr FROM marc INTO @DATA(lv_matgr)
+                    WHERE matnr = @ls_qals-selmatnr AND
+                          werks = @ls_qals-selwerk .
+  ENDIF.
+
+* data(lv_kunnr) = | { ls_qals-selkunnr ALPHA = OUT } | .
+
+  DATA(lv_kunnr)  = ls_qals-selkunnr .
+
+  CALL FUNCTION 'CONVERSION_EXIT_ALPHA_OUTPUT'
+    EXPORTING
+      input  = lv_kunnr
+    IMPORTING
+      output = lv_kunnr.
+
+  SELECT SINGLE low FROM tvarvc INTO @DATA(lv_low) WHERE name = 'ZQM_CUST_10' AND
+                                                         low  = @lv_kunnr.
+  IF lv_low IS NOT INITIAL.
+
+    CALL FUNCTION 'CONVERT_DATE_TO_INTERNAL'
+      EXPORTING
+        date_external = lv_matgr
+*       ACCEPT_INITIAL_DATE            =
+      IMPORTING
+        date_internal = lv_date1.
+
+    IF lv_date1 GE sy-datum.
+
+      CALL FUNCTION 'HR_HK_DIFF_BT_2_DATES'
+        EXPORTING
+          date1         = lv_date1
+          date2         = sy-datum
+          output_format = '03'
+        IMPORTING
+          days          = lv_days.
+
+    ENDIF.
+
+    IF lv_days LE 5 .
+
+      MESSAGE | UD can not be processed as the customer certificate is expired or will be expired on { lv_matgr } | TYPE 'E'.
+
+    ENDIF .
+  ENDIF.
+
+************** EOC by Vikram
+ENDIF.
