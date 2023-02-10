@@ -1,0 +1,33 @@
+lv_dl = 'QM_T301_OPLT'.  --> maintained in So15
+          IF NOT lv_dl IS INITIAL.
+            DATA lv_DLI_NAME TYPE   soobjinfi1-obj_name.
+            DATA lt_email TYPE TABLE OF sodlienti1.
+            DATA ls_email TYPE sodlienti1.
+            DATA ls_msg   TYPE bal_s_msg.
+            lv_DLI_NAME = lv_dl.
+            CALL FUNCTION 'SO_DLI_READ_API1'
+              EXPORTING
+                dli_name                   = lv_dli_name
+                shared_dli                 = abap_true
+              TABLES
+                dli_entries                = lt_email
+              EXCEPTIONS
+                dli_not_exist              = 1
+                operation_no_authorization = 2
+                parameter_error            = 3
+                x_error                    = 4
+                OTHERS                     = 5.
+
+            IF sy-subrc <> 0.
+            ELSE.
+              LOOP AT lt_email INTO ls_email.
+                ls_receivers-receiver   = ls_email-member_adr.
+                ls_receivers-rec_type   = 'U'.
+                ls_receivers-com_type   = 'INT'.
+                ls_receivers-notif_del  = 'X'.
+                ls_receivers-notif_ndel = 'X'.
+                APPEND ls_receivers TO lt_receivers.
+                clear ls_receivers.
+              ENDLOOP.
+            ENDIF.
+          ENDIF.
